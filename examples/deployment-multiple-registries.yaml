@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multi-registry-app
+  namespace: production
+  annotations:
+    # Use multiple pull secrets for different registries
+    pullsecret.pascal-kutscha.de/cluster-pull-secrets: "docker-hub,gcr-registry,private-registry"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: multi-registry-app
+  template:
+    metadata:
+      labels:
+        app: multi-registry-app
+    spec:
+      imagePullSecrets:
+      - name: pullsecret-docker-hub
+      - name: pullsecret-gcr-registry
+      - name: pullsecret-private-registry
+      containers:
+      - name: main-app
+        image: docker.io/myorg/main-app:latest
+      - name: sidecar
+        image: gcr.io/myproject/sidecar:v1
+      - name: init-container
+        image: private-registry.example.com/tools/init:v2
