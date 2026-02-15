@@ -189,7 +189,11 @@ resources:
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
+- Making changes to the API
+- Regenerating CRDs and generated code
+- Testing your changes
+- Kubebuilder markers reference
 
 ## License
 
