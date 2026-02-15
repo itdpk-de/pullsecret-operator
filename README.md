@@ -117,9 +117,18 @@ go build -o manager ./operator/main.go
 
 ### Generate CRDs
 
+The CRDs are automatically generated using kubebuilder's controller-gen tool. To regenerate them:
+
 ```bash
 make manifests
 ```
+
+This command:
+1. Generates the CRD from the Go types in `pkg/apis/pullsecret.pascal-kutscha.de/v1/`
+2. Saves it to `pullsecret/templates/pullsecret.pascal-kutscha.de_clusterpullsecrets.yaml`
+3. Copies it to `helm-chart/pullsecret-operator/templates/crd.yaml` for Helm deployment
+
+**Important**: Always run `make manifests` after modifying the API types to ensure CRDs are up-to-date.
 
 ### Generate DeepCopy Methods
 

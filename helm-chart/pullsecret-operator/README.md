@@ -81,6 +81,18 @@ To uninstall/delete the `pullsecret-operator` deployment:
 helm uninstall pullsecret-operator --namespace pullsecret-operator-system
 ```
 
+## Development
+
+### CRD Generation
+
+The CRD (`templates/crd.yaml`) is automatically generated from the Go API types using kubebuilder's controller-gen. 
+
+**Do not manually edit `templates/crd.yaml`**. Instead:
+
+1. Modify the API types in the main repository: `pkg/apis/pullsecret.pascal-kutscha.de/v1/clusterpullsecret_types.go`
+2. Run `make manifests` from the repository root to regenerate the CRD
+3. The CRD will be automatically copied to the Helm chart templates directory
+
 ## Support
 
 For issues and questions, please visit the [GitHub repository](https://github.com/PascalKu/pullsecret-operator).
