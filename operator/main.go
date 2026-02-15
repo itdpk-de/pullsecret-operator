@@ -1,7 +1,9 @@
+// Package main starts the ClusterPullSecret operator controller.
+// This operator manages Docker registry pull secrets across a Kubernetes cluster,
+// automatically synchronizing credentials to namespaces based on Deployment annotations.
 package main
 
 import (
-	"context"
 	"log"
 
 	"github.com/pascalku/pullsecret-operator/operator/controllers"
@@ -18,6 +20,9 @@ func init() {
 	utilruntime.Must(v1.AddToScheme(scheme.Scheme))
 }
 
+// main initializes and runs the operator manager.
+// It sets up controllers for ClusterPullSecret and Deployment resources,
+// and handles graceful shutdown via OS signals.
 func main() {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
@@ -34,16 +39,16 @@ func main() {
 	if err := (&controllers.ClusterPullSecretReconciler{
 		Client: mgr.GetClient(),
 	}).SetupWithManager(mgr); err != nil {
-		log.Fatalf("Error creating reconciler: %v", err)
+		log.Fatalf("Error creating ClusterPullSecret reconciler: %v", err)
 	}
 	if err := (&controllers.DeploymentReconciler{
 		Client: mgr.GetClient(),
 	}).SetupWithManager(mgr); err != nil {
-		log.Fatalf("Error creating reconciler: %v", err)
+		log.Fatalf("Error creating Deployment reconciler: %v", err)
 	}
 
 	log.Println("Starting manager...")
-	if err := mgr.Start(context.Background()); err != nil {
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Fatalf("Manager exited non-zero: %v", err)
 	}
 }
