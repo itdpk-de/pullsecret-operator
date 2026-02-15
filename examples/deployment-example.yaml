@@ -1,0 +1,125 @@
+# Example: Deployment with ClusterPullSecret Annotation
+
+This example shows how to annotate a Deployment to automatically get pull secrets from a ClusterPullSecret.
+
+## Prerequisites
+
+Make sure you have a ClusterPullSecret created. See:
+- [clusterpullsecret-secretref.yaml](./clusterpullsecret-secretref.yaml) for secret reference example
+- [clusterpullsecret-encrypted.yaml](./clusterpullsecret-encrypted.yaml) for encrypted data example
+
+## Simple Deployment
+
+Create a Deployment with the annotation:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-private
+  namespace: default
+  annotations:
+    # Reference one or more ClusterPullSecrets (comma-separated)
+    pullsecret.pascal-kutscha.de/cluster-pull-secrets: "my-registry"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx-private
+  template:
+    metadata:
+      labels:
+        app: nginx-private
+    spec:
+      containers:
+      - name: nginx
+        image: ghcr.io/myorg/nginx:latest
+        ports:
+        - containerPort: 80
+      # The operator will automatically create this secret
+      imagePullSecrets:
+      - name: pullsecret-my-registry
+```
+
+## Multiple Pull Secrets
+
+You can reference multiple ClusterPullSecrets:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multi-registry-app
+  namespace: production
+  annotations:
+    # Multiple registries separated by comma
+    pullsecret.pascal-kutscha.de/cluster-pull-secrets: "ghcr-registry,dockerhub-registry,private-registry"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: multi-registry-app
+  template:
+    metadata:
+      labels:
+        app: multi-registry-app
+    spec:
+      containers:
+      - name: app
+        image: ghcr.io/myorg/app:v1.0.0
+        ports:
+        - containerPort: 8080
+      - name: sidecar
+        image: docker.io/myorg/sidecar:latest
+        ports:
+        - containerPort: 9090
+      imagePullSecrets:
+      - name: pullsecret-ghcr-registry
+      - name: pullsecret-dockerhub-registry
+      - name: pullsecret-private-registry
+```
+
+## How it Works
+
+When you create or update a Deployment with the annotation:
+
+1. The operator detects the `pullsecret.pascal-kutscha.de/cluster-pull-secrets` annotation
+2. For each referenced ClusterPullSecret, it creates a Secret in the Deployment's namespace
+3. The Secret is named `pullsecret-<clusterpullsecret-name>`
+4. The Secret is automatically updated when the ClusterPullSecret changes
+5. The Secret is automatically deleted when the Deployment is deleted (via OwnerReferences)
+
+## Apply the Deployment
+
+Save the example to a file and apply:
+
+```bash
+kubectl apply -f deployment-example.yaml
+```
+
+## Verify
+
+Check that the secrets were created:
+
+```bash
+kubectl get secrets -n <namespace>
+```
+
+You should see secrets like:
+- `pullsecret-my-registry`
+- `pullsecret-ghcr-registry`
+- etc.
+
+View the Deployment:
+
+```bash
+kubectl get deployment <deployment-name> -n <namespace>
+kubectl describe deployment <deployment-name> -n <namespace>
+```
+
+## Important Notes
+
+1. **Secret Names**: Secrets are always named `pullsecret-<clusterpullsecret-name>`
+2. **Automatic Updates**: When a ClusterPullSecret is updated, all managed secrets are automatically updated
+3. **Automatic Cleanup**: Secrets are deleted when the Deployment is deleted
+4. **Namespace Isolation**: Each namespace gets its own copy of the secret
