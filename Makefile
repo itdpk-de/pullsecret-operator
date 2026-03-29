@@ -33,6 +33,19 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 	test -s $(LOCALBIN)/controller-gen && $(LOCALBIN)/controller-gen --version | grep -q $(CONTROLLER_TOOLS_VERSION) || \
 	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
 
-build-push:
-	docker build -t pascalku/pullsecret-operator:latest .
-	docker push pascalku/pullsecret-operator:latest
+# Docker image configuration
+REGISTRY ?= ghcr.io
+IMAGE_REPO ?= pascalku/pullsecret-operator
+IMAGE_TAG ?= latest
+IMAGE_NAME = $(REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG)
+
+.PHONY: docker-build
+docker-build:
+	docker build -t $(IMAGE_NAME) .
+
+.PHONY: docker-push
+docker-push:
+	docker push $(IMAGE_NAME)
+
+.PHONY: build-push
+build-push: docker-build docker-push

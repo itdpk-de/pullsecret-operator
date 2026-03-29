@@ -109,6 +109,16 @@ Build the Docker image:
 docker build -t pullsecret-operator:dev .
 ```
 
+Or use the Makefile to build and push to GHCR:
+
+```bash
+# Build and push to GitHub Container Registry (requires docker login to ghcr.io)
+make build-push
+
+# Or with custom values
+make build-push REGISTRY=ghcr.io IMAGE_REPO=yourorg/pullsecret-operator IMAGE_TAG=v1.0.0
+```
+
 ### Building from Source
 
 ```bash
