@@ -37,8 +37,8 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 REGISTRY ?= ghcr.io
 IMAGE_REPO ?= pascalku/pullsecret-operator
 IMAGE_TAG ?= latest
-# Remove leading hyphens from IMAGE_TAG if present
-IMAGE_TAG_CLEAN = $(patsubst -%,%,$(IMAGE_TAG))
+# Remove all leading hyphens from IMAGE_TAG and default to 'latest' if empty
+IMAGE_TAG_CLEAN = $(shell echo "$(IMAGE_TAG)" | sed 's/^-*//' | sed 's/^$$/latest/')
 IMAGE_NAME = $(REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG_CLEAN)
 
 .PHONY: docker-build
