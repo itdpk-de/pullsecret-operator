@@ -12,7 +12,10 @@ COPY operator/ operator/
 COPY pkg/ pkg/
 
 # Build the operator
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o manager ./operator/main.go
+# Use build arguments to support multi-platform builds
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -a -o manager ./operator/main.go
 
 # Runtime stage
 FROM gcr.io/distroless/static:nonroot
