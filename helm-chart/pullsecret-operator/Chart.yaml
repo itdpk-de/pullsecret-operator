@@ -1,0 +1,16 @@
+apiVersion: v2
+name: pullsecret-operator
+description: A Helm chart for the PullSecret Operator that manages cluster-wide pull secrets
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - operator
+  - kubernetes
+  - pull-secrets
+  - docker-registry
+maintainers:
+  - name: PascalKu
+home: https://github.com/PascalKu/pullsecret-operator
+sources:
+  - https://github.com/PascalKu/pullsecret-operator
