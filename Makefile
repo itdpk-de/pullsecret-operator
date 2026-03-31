@@ -37,15 +37,18 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 REGISTRY ?= ghcr.io
 IMAGE_REPO ?= pascalku/pullsecret-operator
 IMAGE_TAG ?= latest
-IMAGE_NAME = $(REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG)
+# Remove leading hyphens from IMAGE_TAG if present
+IMAGE_TAG_CLEAN = $(patsubst -%,%,$(IMAGE_TAG))
+IMAGE_NAME = $(REGISTRY)/$(IMAGE_REPO):$(IMAGE_TAG_CLEAN)
 
 .PHONY: docker-build
 docker-build:
-	docker build -t $(IMAGE_NAME) .
+	docker buildx build --load -t $(IMAGE_NAME) .
 
 .PHONY: docker-push
 docker-push:
 	docker push $(IMAGE_NAME)
 
 .PHONY: build-push
-build-push: docker-build docker-push
+build-push:
+	docker buildx build --push -t $(IMAGE_NAME) .
