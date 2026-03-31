@@ -53,12 +53,15 @@ func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconci
 	val, keyName, err := credentials.GetCredentialBytes(ctx, r.Client, cps.Spec.Credentials)
 	if err != nil {
 		log.Printf("failed to get credentials for ClusterPullSecret %s: %v", cps.Name, err)
-		
+
 		reason := "credential-error"
 		var keyNotFoundErr credentials.ErrKeyNotFound
+		var missingFieldErr credentials.ErrMissingField
 		var noCredsErr credentials.ErrNoCredentials
 		if errors.As(err, &keyNotFoundErr) {
 			reason = "source-secret-key-missing"
+		} else if errors.As(err, &missingFieldErr) {
+			reason = "registry-credentials-field-missing"
 		} else if errors.As(err, &noCredsErr) {
 			reason = "no-credentials"
 		} else if apierrors.IsNotFound(err) {

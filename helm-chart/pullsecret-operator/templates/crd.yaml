@@ -55,6 +55,45 @@ spec:
                       The decrypted value must be the raw .dockerconfigjson content.
                       Recommended: encrypt with KMS or SOPS and store base64(encoded(ciphertext)).
                     type: string
+                  registryCredentials:
+                    description: |-
+                      RegistryCredentials references a Secret whose keys hold individual credential fields
+                      (server, username, password, email). The operator assembles the .dockerconfigjson
+                      automatically, so no credential data needs to be embedded in the ClusterPullSecret spec.
+                    properties:
+                      emailKey:
+                        description: |-
+                          EmailKey is the key in the Secret whose value is the registry email address.
+                          Defaults to "email" when not set. The email field is optional in the resulting config.
+                        type: string
+                      namespace:
+                        description: Namespace is the namespace of the Secret.
+                        minLength: 1
+                        type: string
+                      passwordKey:
+                        description: |-
+                          PasswordKey is the key in the Secret whose value is the registry password.
+                          Defaults to "password" when not set.
+                        type: string
+                      secretName:
+                        description: SecretName is the name of the Secret containing
+                          the credential fields.
+                        minLength: 1
+                        type: string
+                      serverKey:
+                        description: |-
+                          ServerKey is the key in the Secret whose value is the registry server address (e.g. "ghcr.io").
+                          Defaults to "server" when not set.
+                        type: string
+                      usernameKey:
+                        description: |-
+                          UsernameKey is the key in the Secret whose value is the registry username.
+                          Defaults to "username" when not set.
+                        type: string
+                    required:
+                    - namespace
+                    - secretName
+                    type: object
                   secretRef:
                     description: SecretRef points to a Secret containing the credential
                       material (backwards compatible).
