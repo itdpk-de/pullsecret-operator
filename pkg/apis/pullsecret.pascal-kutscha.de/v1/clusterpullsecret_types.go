@@ -22,6 +22,45 @@ type PullSecretCredentials struct {
 	// Recommended: encrypt with KMS or SOPS and store base64(encoded(ciphertext)).
 	// +optional
 	EncryptedData string `json:"encryptedData,omitempty"`
+
+	// RegistryCredentials references a Secret whose keys hold individual credential fields
+	// (server, username, password, email). The operator assembles the .dockerconfigjson
+	// automatically, so no credential data needs to be embedded in the ClusterPullSecret spec.
+	// +optional
+	RegistryCredentials *RegistryCredentialsRef `json:"registryCredentials,omitempty"`
+}
+
+// RegistryCredentialsRef references a Kubernetes Secret that contains individual registry
+// credential fields. The operator reads these fields and builds the .dockerconfigjson format,
+// keeping sensitive data confined to the Secret and out of the ClusterPullSecret spec.
+type RegistryCredentialsRef struct {
+	// SecretName is the name of the Secret containing the credential fields.
+	// +kubebuilder:validation:MinLength=1
+	SecretName string `json:"secretName"`
+
+	// Namespace is the namespace of the Secret.
+	// +kubebuilder:validation:MinLength=1
+	Namespace string `json:"namespace"`
+
+	// ServerKey is the key in the Secret whose value is the registry server address (e.g. "ghcr.io").
+	// Defaults to "server" when not set.
+	// +optional
+	ServerKey string `json:"serverKey,omitempty"`
+
+	// UsernameKey is the key in the Secret whose value is the registry username.
+	// Defaults to "username" when not set.
+	// +optional
+	UsernameKey string `json:"usernameKey,omitempty"`
+
+	// PasswordKey is the key in the Secret whose value is the registry password.
+	// Defaults to "password" when not set.
+	// +optional
+	PasswordKey string `json:"passwordKey,omitempty"`
+
+	// EmailKey is the key in the Secret whose value is the registry email address.
+	// Defaults to "email" when not set. The email field is optional in the resulting config.
+	// +optional
+	EmailKey string `json:"emailKey,omitempty"`
 }
 
 // SecretKeyReference identifies a key within a Secret.
