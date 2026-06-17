@@ -51,6 +51,13 @@ tolerations: []
 
 affinity: {}
 
+# Active registry-login validation. When enabled the operator periodically tries to
+# authenticate against each referenced registry to detect expired/wrong credentials.
+# Requires network egress from the operator to those registries.
+registryValidation:
+  enabled: true
+  timeoutSeconds: 10
+
 # Prometheus metrics endpoint (serves /metrics)
 metrics:
   port: 8080

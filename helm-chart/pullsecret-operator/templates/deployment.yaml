@@ -44,6 +44,10 @@ spec:
           value: ":{{ .Values.metrics.port }}"
         - name: HEALTH_PROBE_BIND_ADDRESS
           value: ":{{ .Values.health.port }}"
+        - name: REGISTRY_VALIDATION_ENABLED
+          value: {{ .Values.registryValidation.enabled | quote }}
+        - name: REGISTRY_VALIDATION_TIMEOUT_SECONDS
+          value: {{ .Values.registryValidation.timeoutSeconds | quote }}
         {{- if .Values.leaderElection.enabled }}
         - name: ENABLE_LEADER_ELECTION
           value: "true"

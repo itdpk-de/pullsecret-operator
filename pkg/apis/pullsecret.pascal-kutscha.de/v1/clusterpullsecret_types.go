@@ -126,6 +126,31 @@ type ClusterPullSecretStatus struct {
 	// of outcome. Useful to detect a stalled controller.
 	// +optional
 	LastValidationTime *metav1.Time `json:"lastValidationTime,omitempty"`
+
+	// RegistryAuth reports the result of the active login check against each registry
+	// referenced by the credentials. Populated only when registry validation is enabled.
+	// +optional
+	// +listType=atomic
+	RegistryAuth []RegistryAuthStatus `json:"registryAuth,omitempty"`
+}
+
+// RegistryAuthStatus reports whether a specific registry accepted the credentials.
+type RegistryAuthStatus struct {
+	// Registry is the registry server the credentials were tested against.
+	Registry string `json:"registry"`
+
+	// Authenticated is true if the registry accepted the credentials. A false value
+	// with a reason of an explicit rejection (HTTP 401/403) indicates expired or wrong
+	// credentials; an "unreachable" reason means the check was inconclusive.
+	Authenticated bool `json:"authenticated"`
+
+	// Reason explains the outcome (empty on success).
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// LastCheckTime is when this registry was last checked.
+	// +optional
+	LastCheckTime *metav1.Time `json:"lastCheckTime,omitempty"`
 }
 
 //

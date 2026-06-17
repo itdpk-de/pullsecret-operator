@@ -9,6 +9,7 @@ import (
 
 	"github.com/pascalku/pullsecret-operator/operator/annotations"
 	"github.com/pascalku/pullsecret-operator/operator/credentials"
+	"github.com/pascalku/pullsecret-operator/operator/registry"
 	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -24,6 +25,9 @@ import (
 type ClusterPullSecretReconciler struct {
 	Client   client.Client
 	Recorder record.EventRecorder
+	// RegistryValidator, when set, actively checks the resolved credentials against
+	// each referenced registry to detect expired/invalid credentials. Optional.
+	RegistryValidator registry.Validator
 }
 
 const clusterFinalizer = "pullsecret.pascal-kutscha.de/finalizer"
@@ -110,13 +114,51 @@ func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconci
 		}
 	}
 
-	// Update status
+	// Update status. Structurally the credentials are valid; if active registry
+	// validation is enabled, an explicit auth rejection downgrades the state so that
+	// expired/wrong credentials surface in status and metrics.
 	cps.Status.ObservedGeneration = cps.Generation
-	r.setStatus(ctx, cps, true, "")
+	synced := true
+	reason := ""
+	if r.RegistryValidator != nil {
+		statuses, authFailed := r.runRegistryValidation(ctx, cps.Name, val)
+		cps.Status.RegistryAuth = statuses
+		if authFailed {
+			synced = false
+			reason = "registry-auth-failed"
+		}
+	}
+	r.setStatus(ctx, cps, synced, reason)
 
 	// Re-validate periodically so the status/metrics catch out-of-band changes
-	// (e.g. a deleted source secret) even without a triggering event.
+	// (e.g. a deleted source secret or expired credentials) even without an event.
 	return reconcile.Result{RequeueAfter: resyncInterval}, nil
+}
+
+// runRegistryValidation actively checks the credentials against each referenced registry
+// and returns the per-registry status plus whether any registry explicitly rejected them.
+func (r *ClusterPullSecretReconciler) runRegistryValidation(ctx context.Context, name string, dockerConfigJSON []byte) ([]v1.RegistryAuthStatus, bool) {
+	results := r.RegistryValidator.Validate(ctx, dockerConfigJSON)
+	now := metav1.Now()
+	authFailed := false
+	statuses := make([]v1.RegistryAuthStatus, 0, len(results))
+	for _, res := range results {
+		authed := res.State == registry.StateOK
+		statuses = append(statuses, v1.RegistryAuthStatus{
+			Registry:      res.Registry,
+			Authenticated: authed,
+			Reason:        res.Reason,
+			LastCheckTime: &now,
+		})
+		switch res.State {
+		case registry.StateOK:
+			setRegistryAuthMetric(name, res.Registry, true)
+		case registry.StateAuthFailed:
+			authFailed = true
+			setRegistryAuthMetric(name, res.Registry, false)
+		}
+	}
+	return statuses, authFailed
 }
 
 // setStatus updates the ClusterPullSecret status and the synced metric in one place.

@@ -18,8 +18,20 @@ var clusterPullSecretSynced = prometheus.NewGaugeVec(
 	[]string{"clusterpullsecret"},
 )
 
+// registryAuthOK exposes whether each registry accepted the ClusterPullSecret's
+// credentials (1) or explicitly rejected them (0). Alert on:
+//
+//	pullsecret_operator_registry_auth_ok == 0
+var registryAuthOK = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "pullsecret_operator_registry_auth_ok",
+		Help: "Whether the registry accepted the ClusterPullSecret's credentials (1) or rejected them (0).",
+	},
+	[]string{"clusterpullsecret", "registry"},
+)
+
 func init() {
-	metrics.Registry.MustRegister(clusterPullSecretSynced)
+	metrics.Registry.MustRegister(clusterPullSecretSynced, registryAuthOK)
 }
 
 // setSyncedMetric records the sync state for a ClusterPullSecret.
@@ -31,8 +43,18 @@ func setSyncedMetric(name string, synced bool) {
 	clusterPullSecretSynced.WithLabelValues(name).Set(v)
 }
 
+// setRegistryAuthMetric records whether a registry accepted the credentials.
+func setRegistryAuthMetric(name, registry string, ok bool) {
+	v := 0.0
+	if ok {
+		v = 1.0
+	}
+	registryAuthOK.WithLabelValues(name, registry).Set(v)
+}
+
 // clearSyncedMetric removes the metric series for a deleted ClusterPullSecret so it
 // does not linger as a stale gauge.
 func clearSyncedMetric(name string) {
 	clusterPullSecretSynced.DeleteLabelValues(name)
+	registryAuthOK.DeletePartialMatch(prometheus.Labels{"clusterpullsecret": name})
 }

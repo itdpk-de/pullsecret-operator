@@ -214,6 +214,36 @@ The operator consists of two main controllers:
 1. **ClusterPullSecretReconciler**: Resolves and validates the credentials for each `ClusterPullSecret`, keeps every secret it manages (those carrying the managed-by annotation) up to date, watches the referenced source secrets so rotation propagates, re-validates periodically, and reports `status.phase`/metrics. It does **not** blanket-create secrets in every namespace.
 2. **DeploymentReconciler**: Watches Deployments with the annotation, creates/updates the `pullsecret-<name>` secret in their namespace, and cleans it up when the annotation is removed (owner-reference based).
 
+## Monitoring & credential validation
+
+Each `ClusterPullSecret` reports a status you can scrape and alert on:
+
+```bash
+kubectl get clusterpullsecrets
+# NAME          PHASE       SYNCED   REASON                  LAST-SYNC   AGE
+# my-registry   Synced      true                             30s         5m
+# broken        OutOfSync   false    source-secret-not-found              5m
+```
+
+Prometheus metrics (served on the metrics port, default `:8080`):
+
+- `pullsecret_operator_clusterpullsecret_synced{clusterpullsecret}` — `1` synced, `0` out of sync
+- `pullsecret_operator_registry_auth_ok{clusterpullsecret,registry}` — `1` registry accepted the credentials, `0` rejected them
+
+Example alerts:
+
+```promql
+pullsecret_operator_clusterpullsecret_synced == 0
+pullsecret_operator_registry_auth_ok == 0
+```
+
+**Validation depth:** the operator always validates structurally (source secret exists,
+fields present, content is valid `.dockerconfigjson`) and, by default, **actively logs in**
+to each referenced registry to catch expired/wrong credentials. The active check needs
+network egress from the operator; disable it with `registryValidation.enabled: false`
+(blocked egress is treated as "inconclusive", not a failure). Validation re-runs on every
+change and periodically (every 5 minutes).
+
 ## Configuration
 
 Configuration options can be set via Helm values:

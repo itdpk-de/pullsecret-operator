@@ -6,8 +6,11 @@ package main
 import (
 	"log"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/pascalku/pullsecret-operator/operator/controllers"
+	"github.com/pascalku/pullsecret-operator/operator/registry"
 	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -56,8 +59,19 @@ func main() {
 		log.Fatalf("Failed to set up ready check: %v", err)
 	}
 
+	// Active registry-login validation is enabled by default; it requires network
+	// egress from the operator to the referenced registries. Disable via
+	// REGISTRY_VALIDATION_ENABLED=false in air-gapped environments.
+	var registryValidator registry.Validator
+	if os.Getenv("REGISTRY_VALIDATION_ENABLED") != "false" {
+		timeout := time.Duration(getEnvInt("REGISTRY_VALIDATION_TIMEOUT_SECONDS", 10)) * time.Second
+		registryValidator = registry.NewHTTPValidator(timeout)
+		log.Println("Active registry-login validation enabled")
+	}
+
 	if err := (&controllers.ClusterPullSecretReconciler{
-		Client: mgr.GetClient(),
+		Client:            mgr.GetClient(),
+		RegistryValidator: registryValidator,
 	}).SetupWithManager(mgr); err != nil {
 		log.Fatalf("Error creating ClusterPullSecret reconciler: %v", err)
 	}
@@ -76,6 +90,15 @@ func main() {
 func getEnvDefault(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+func getEnvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return def
 }
