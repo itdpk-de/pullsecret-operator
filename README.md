@@ -121,6 +121,23 @@ The operator creates a secret named `pullsecret-<clusterpullsecret-name>` in the
 workload's namespace. Reference it via `imagePullSecrets`. When the annotation is
 removed, the secret is cleaned up (owner-reference based).
 
+#### Optional: automatic injection via mutating webhook
+
+Instead of referencing `imagePullSecrets` manually, you can enable a mutating webhook
+that injects them into **Pods** at admission, based on the annotation on the Pod or its
+owning workload:
+
+```bash
+helm upgrade --install pullsecret-operator ./helm-chart/pullsecret-operator \
+  --set webhook.enabled=true
+```
+
+Because it mutates the **Pod** and not the Deployment/CR, the change is invisible to
+GitOps controllers (Argo CD / Flux) and does **not** cause reconciliation loops or
+endless rollouts. The chart generates a self-signed serving certificate (reused across
+upgrades). The default `failurePolicy: Ignore` means Pod creation is never blocked if the
+operator is unavailable.
+
 ## Docker Image
 
 The operator image is automatically built and pushed to GitHub Container Registry (GHCR) using GitHub Actions.

@@ -39,6 +39,11 @@ spec:
         - name: health
           containerPort: {{ .Values.health.port }}
           protocol: TCP
+        {{- if .Values.webhook.enabled }}
+        - name: webhook
+          containerPort: {{ .Values.webhook.port }}
+          protocol: TCP
+        {{- end }}
         env:
         - name: METRICS_BIND_ADDRESS
           value: ":{{ .Values.metrics.port }}"
@@ -48,6 +53,14 @@ spec:
           value: {{ .Values.registryValidation.enabled | quote }}
         - name: REGISTRY_VALIDATION_TIMEOUT_SECONDS
           value: {{ .Values.registryValidation.timeoutSeconds | quote }}
+        {{- if .Values.webhook.enabled }}
+        - name: WEBHOOK_ENABLED
+          value: "true"
+        - name: WEBHOOK_PORT
+          value: {{ .Values.webhook.port | quote }}
+        - name: WEBHOOK_CERT_DIR
+          value: /tmp/k8s-webhook-server/serving-certs
+        {{- end }}
         {{- if .Values.leaderElection.enabled }}
         - name: ENABLE_LEADER_ELECTION
           value: "true"
@@ -68,6 +81,18 @@ spec:
           periodSeconds: 10
         resources:
           {{- toYaml .Values.resources | nindent 12 }}
+        {{- if .Values.webhook.enabled }}
+        volumeMounts:
+        - name: webhook-certs
+          mountPath: /tmp/k8s-webhook-server/serving-certs
+          readOnly: true
+        {{- end }}
+      {{- if .Values.webhook.enabled }}
+      volumes:
+      - name: webhook-certs
+        secret:
+          secretName: {{ include "pullsecret-operator.fullname" . }}-webhook-cert
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/pascalku/pullsecret-operator/operator/controllers"
 	"github.com/pascalku/pullsecret-operator/operator/registry"
+	podwebhook "github.com/pascalku/pullsecret-operator/operator/webhook"
 	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -24,6 +25,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 func init() {
@@ -42,8 +45,9 @@ func main() {
 	leaderElectionNamespace := getEnvDefault("LEADER_ELECTION_NAMESPACE", "kube-system")
 	metricsAddr := getEnvDefault("METRICS_BIND_ADDRESS", ":8080")
 	healthAddr := getEnvDefault("HEALTH_PROBE_BIND_ADDRESS", ":8081")
+	webhookEnabled := os.Getenv("WEBHOOK_ENABLED") == "true"
 
-	mgr, err := manager.New(config.GetConfigOrDie(), manager.Options{
+	opts := manager.Options{
 		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "kube-leader-pullsecret.pascal-kutscha.de",
 		LeaderElectionNamespace: leaderElectionNamespace,
@@ -51,7 +55,15 @@ func main() {
 			BindAddress: metricsAddr,
 		},
 		HealthProbeBindAddress: healthAddr,
-	})
+	}
+	if webhookEnabled {
+		opts.WebhookServer = webhook.NewServer(webhook.Options{
+			Port:    getEnvInt("WEBHOOK_PORT", 9443),
+			CertDir: getEnvDefault("WEBHOOK_CERT_DIR", "/tmp/k8s-webhook-server/serving-certs"),
+		})
+	}
+
+	mgr, err := manager.New(config.GetConfigOrDie(), opts)
 	if err != nil {
 		log.Fatalf("Failed to create manager: %v", err)
 	}
@@ -90,6 +102,18 @@ func main() {
 		}).SetupWithManager(mgr); err != nil {
 			log.Fatalf("Error creating %s reconciler: %v", w.name, err)
 		}
+	}
+
+	// Optional mutating webhook that injects imagePullSecrets into Pods. It mutates the
+	// Pod (not the workload) so GitOps controllers do not see drift.
+	if webhookEnabled {
+		mgr.GetWebhookServer().Register("/mutate-v1-pod", &admission.Webhook{
+			Handler: &podwebhook.PodInjector{
+				Client:  mgr.GetClient(),
+				Decoder: admission.NewDecoder(scheme.Scheme),
+			},
+		})
+		log.Println("Pod imagePullSecrets injection webhook enabled")
 	}
 
 	log.Println("Starting manager...")
