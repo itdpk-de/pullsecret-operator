@@ -14,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,6 +29,9 @@ type ClusterPullSecretReconciler struct {
 	// RegistryValidator, when set, actively checks the resolved credentials against
 	// each referenced registry to detect expired/invalid credentials. Optional.
 	RegistryValidator registry.Validator
+	// RegistryCheckInterval throttles active registry-login checks so they do not run on
+	// every structural resync (which would risk registry rate limits). Defaults to 30m.
+	RegistryCheckInterval time.Duration
 }
 
 const clusterFinalizer = "pullsecret.pascal-kutscha.de/finalizer"
@@ -35,6 +39,12 @@ const clusterFinalizer = "pullsecret.pascal-kutscha.de/finalizer"
 // resyncInterval is how often credentials are re-validated even without a triggering
 // event, so the status and metrics reflect e.g. a deleted source secret promptly.
 const resyncInterval = 5 * time.Minute
+
+// requeueAfter returns the resync interval with up to 10% jitter so many
+// ClusterPullSecrets don't all reconcile at the same instant.
+func requeueAfter() time.Duration {
+	return wait.Jitter(resyncInterval, 0.1)
+}
 
 func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	cps := &v1.ClusterPullSecret{}
@@ -70,7 +80,7 @@ func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconci
 		// periodically. Resolvable errors (missing/invalid source secret, transient
 		// API errors) are retried with backoff.
 		if isPermanentCredentialError(err) {
-			return reconcile.Result{RequeueAfter: resyncInterval}, nil
+			return reconcile.Result{RequeueAfter: requeueAfter()}, nil
 		}
 		return reconcile.Result{}, err
 	}
@@ -121,18 +131,52 @@ func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconci
 	synced := true
 	reason := ""
 	if r.RegistryValidator != nil {
-		statuses, authFailed := r.runRegistryValidation(ctx, cps.Name, val)
-		cps.Status.RegistryAuth = statuses
-		if authFailed {
+		if r.registryCheckDue(cps.Status.RegistryAuth) {
+			statuses, authFailed := r.runRegistryValidation(ctx, cps.Name, val)
+			cps.Status.RegistryAuth = statuses
+			if authFailed {
+				synced = false
+				reason = "registry-auth-failed"
+			}
+		} else if cps.Status.Reason == "registry-auth-failed" {
+			// Not due for a re-check yet; preserve the last registry verdict so the
+			// status/metrics don't flap back to Synced between checks.
 			synced = false
 			reason = "registry-auth-failed"
 		}
 	}
 	r.setStatus(ctx, cps, synced, reason)
 
-	// Re-validate periodically so the status/metrics catch out-of-band changes
-	// (e.g. a deleted source secret or expired credentials) even without an event.
-	return reconcile.Result{RequeueAfter: resyncInterval}, nil
+	// Re-validate periodically (jittered to spread load) so the status/metrics catch
+	// out-of-band changes even without an event.
+	return reconcile.Result{RequeueAfter: requeueAfter()}, nil
+}
+
+// registryCheckInterval returns the configured interval or the 30m default.
+func (r *ClusterPullSecretReconciler) registryCheckInterval() time.Duration {
+	if r.RegistryCheckInterval > 0 {
+		return r.RegistryCheckInterval
+	}
+	return 30 * time.Minute
+}
+
+// registryCheckDue reports whether enough time has passed since the last active
+// registry check to run another one.
+func (r *ClusterPullSecretReconciler) registryCheckDue(statuses []v1.RegistryAuthStatus) bool {
+	var latest *metav1.Time
+	for i := range statuses {
+		t := statuses[i].LastCheckTime
+		if t == nil {
+			continue
+		}
+		if latest == nil || t.After(latest.Time) {
+			latest = t
+		}
+	}
+	if latest == nil {
+		return true
+	}
+	return time.Since(latest.Time) >= r.registryCheckInterval()
 }
 
 // runRegistryValidation actively checks the credentials against each referenced registry

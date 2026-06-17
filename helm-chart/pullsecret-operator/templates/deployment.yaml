@@ -53,6 +53,8 @@ spec:
           value: {{ .Values.registryValidation.enabled | quote }}
         - name: REGISTRY_VALIDATION_TIMEOUT_SECONDS
           value: {{ .Values.registryValidation.timeoutSeconds | quote }}
+        - name: REGISTRY_VALIDATION_INTERVAL_SECONDS
+          value: {{ .Values.registryValidation.intervalSeconds | quote }}
         {{- if .Values.webhook.enabled }}
         - name: WEBHOOK_ENABLED
           value: "true"

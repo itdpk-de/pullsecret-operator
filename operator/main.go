@@ -79,15 +79,18 @@ func main() {
 	// egress from the operator to the referenced registries. Disable via
 	// REGISTRY_VALIDATION_ENABLED=false in air-gapped environments.
 	var registryValidator registry.Validator
+	var registryCheckInterval time.Duration
 	if os.Getenv("REGISTRY_VALIDATION_ENABLED") != "false" {
 		timeout := time.Duration(getEnvInt("REGISTRY_VALIDATION_TIMEOUT_SECONDS", 10)) * time.Second
 		registryValidator = registry.NewHTTPValidator(timeout)
-		log.Println("Active registry-login validation enabled")
+		registryCheckInterval = time.Duration(getEnvInt("REGISTRY_VALIDATION_INTERVAL_SECONDS", 1800)) * time.Second
+		log.Printf("Active registry-login validation enabled (interval %s)", registryCheckInterval)
 	}
 
 	if err := (&controllers.ClusterPullSecretReconciler{
-		Client:            mgr.GetClient(),
-		RegistryValidator: registryValidator,
+		Client:                mgr.GetClient(),
+		RegistryValidator:     registryValidator,
+		RegistryCheckInterval: registryCheckInterval,
 	}).SetupWithManager(mgr); err != nil {
 		log.Fatalf("Error creating ClusterPullSecret reconciler: %v", err)
 	}

@@ -57,6 +57,8 @@ affinity: {}
 registryValidation:
   enabled: true
   timeoutSeconds: 10
+  # How often to actively re-check each registry login (throttled to avoid rate limits).
+  intervalSeconds: 1800
 
 # Mutating webhook that injects imagePullSecrets into Pods based on the
 # cluster-pull-secrets annotation. It mutates Pods (not workloads), so it is invisible
@@ -79,6 +81,17 @@ webhook:
 # Prometheus metrics endpoint (serves /metrics)
 metrics:
   port: 8080
+  # Create a Service so Prometheus can scrape the metrics port.
+  service:
+    enabled: true
+
+# ServiceMonitor for the Prometheus Operator (requires its CRDs to be installed).
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: ""
+  # Extra labels, e.g. to match your Prometheus serviceMonitorSelector.
+  labels: {}
 
 # Health/readiness probe endpoint (serves /healthz and /readyz)
 health:

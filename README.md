@@ -75,13 +75,15 @@ spec:
 See [examples/clusterpullsecret-registrycredentials.yaml](examples/clusterpullsecret-registrycredentials.yaml)
 for a full walkthrough.
 
-Using `encryptedData` (base64-encoded `.dockerconfigjson`):
+Using inline `dockerConfigJson` (raw JSON **or** base64-encoded — both accepted):
 
-> **Note:** Despite its name, `encryptedData` is **not** decrypted by the operator —
-> it is only base64-decoded, and the result must be valid `.dockerconfigjson`. It does
-> **not** provide confidentiality (anyone with `get clusterpullsecrets` can decode it).
-> For real encryption-at-rest, prefer `secretRef`/`registryCredentials` and protect the
-> referenced Secret with SOPS, Sealed Secrets, or a secrets manager.
+> **Note:** Inline credentials are **not** encrypted and provide no confidentiality
+> (anyone with `get clusterpullsecrets` can read them). For real encryption-at-rest,
+> prefer `secretRef`/`registryCredentials` and protect the referenced Secret with SOPS,
+> Sealed Secrets, or a secrets manager.
+>
+> The legacy field `encryptedData` is a **deprecated** alias for `dockerConfigJson`
+> (treated identically, never decrypted). Use `dockerConfigJson`.
 
 ```yaml
 apiVersion: pullsecret.pascal-kutscha.de/v1
@@ -90,8 +92,8 @@ metadata:
   name: my-registry
 spec:
   credentials:
-    # base64 of a valid .dockerconfigjson document
-    encryptedData: <base64-encoded-.dockerconfigjson>
+    # raw .dockerconfigjson or base64 of it
+    dockerConfigJson: <.dockerconfigjson-or-base64>
 ```
 
 Apply the resource:
@@ -262,8 +264,12 @@ pullsecret_operator_registry_auth_ok == 0
 fields present, content is valid `.dockerconfigjson`) and, by default, **actively logs in**
 to each referenced registry to catch expired/wrong credentials. The active check needs
 network egress from the operator; disable it with `registryValidation.enabled: false`
-(blocked egress is treated as "inconclusive", not a failure). Validation re-runs on every
-change and periodically (every 5 minutes).
+(blocked egress is treated as "inconclusive", not a failure). Structural validation
+re-runs on every change and every ~5 minutes; the active registry login is throttled to
+`registryValidation.intervalSeconds` (default 30 minutes) to avoid registry rate limits.
+
+Scrape the metrics with the bundled `Service` (`metrics.service.enabled`, default on) or a
+`ServiceMonitor` (`serviceMonitor.enabled`, requires the Prometheus Operator).
 
 ## Configuration
 

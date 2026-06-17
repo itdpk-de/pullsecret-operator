@@ -75,6 +75,49 @@ func TestEncryptedDataInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestDockerConfigJSONRaw(t *testing.T) {
+	c := newClient()
+	creds := v1.PullSecretCredentials{DockerConfigJSON: validDockerConfig}
+
+	got, key, err := GetCredentialBytes(context.Background(), c, creds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if key != DockerConfigKeyName {
+		t.Fatalf("key = %q, want %q", key, DockerConfigKeyName)
+	}
+	if string(got) != validDockerConfig {
+		t.Fatalf("got %q, want %q", got, validDockerConfig)
+	}
+}
+
+func TestDockerConfigJSONBase64(t *testing.T) {
+	c := newClient()
+	enc := base64.StdEncoding.EncodeToString([]byte(validDockerConfig))
+	creds := v1.PullSecretCredentials{DockerConfigJSON: enc}
+
+	got, _, err := GetCredentialBytes(context.Background(), c, creds)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(got) != validDockerConfig {
+		t.Fatalf("got %q, want %q", got, validDockerConfig)
+	}
+}
+
+func TestDockerConfigJSONAndEncryptedDataIsMultiple(t *testing.T) {
+	c := newClient()
+	creds := v1.PullSecretCredentials{
+		DockerConfigJSON: validDockerConfig,
+		EncryptedData:    base64.StdEncoding.EncodeToString([]byte(validDockerConfig)),
+	}
+	_, _, err := GetCredentialBytes(context.Background(), c, creds)
+	var multi ErrMultipleCredentials
+	if !errors.As(err, &multi) {
+		t.Fatalf("err = %v, want ErrMultipleCredentials", err)
+	}
+}
+
 func TestSecretRefNormalisesKey(t *testing.T) {
 	// A secretRef pointing at an arbitrary key must still produce a Secret keyed
 	// under .dockerconfigjson, otherwise the kube-apiserver rejects it.

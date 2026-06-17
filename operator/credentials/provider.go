@@ -41,13 +41,16 @@ type dockerConfig struct {
 func GetCredentialBytes(ctx context.Context, c client.Client, creds v1.PullSecretCredentials) ([]byte, string, error) {
 	// Exactly one credential source must be provided.
 	sources := 0
-	if creds.EncryptedData != "" {
-		sources++
-	}
 	if creds.SecretRef != nil {
 		sources++
 	}
 	if creds.RegistryCredentials != nil {
+		sources++
+	}
+	if creds.DockerConfigJSON != "" {
+		sources++
+	}
+	if creds.EncryptedData != "" {
 		sources++
 	}
 	switch {
@@ -57,15 +60,16 @@ func GetCredentialBytes(ctx context.Context, c client.Client, creds v1.PullSecre
 		return nil, "", ErrMultipleCredentials{}
 	}
 
-	// encryptedData: base64-encoded .dockerconfigjson content.
-	if creds.EncryptedData != "" {
-		// Tolerate whitespace/newlines introduced by YAML block scalars.
-		cleaned := strings.Join(strings.Fields(creds.EncryptedData), "")
-		decoded, err := base64.StdEncoding.DecodeString(cleaned)
+	// dockerConfigJson and its deprecated alias encryptedData are the inline source.
+	inline := creds.DockerConfigJSON
+	if inline == "" {
+		inline = creds.EncryptedData
+	}
+
+	// dockerConfigJson / encryptedData: inline .dockerconfigjson content.
+	if inline != "" {
+		decoded, err := decodeInlineDockerConfig(inline)
 		if err != nil {
-			return nil, "", err
-		}
-		if err := validateDockerConfigJSON(decoded); err != nil {
 			return nil, "", err
 		}
 		return decoded, DockerConfigKeyName, nil
@@ -137,6 +141,30 @@ func GetCredentialBytes(ctx context.Context, c client.Client, creds v1.PullSecre
 		return nil, "", err
 	}
 	return data, DockerConfigKeyName, nil
+}
+
+// decodeInlineDockerConfig accepts inline credentials as either raw .dockerconfigjson or
+// base64-encoded .dockerconfigjson (tolerating whitespace/newlines from YAML block
+// scalars) and returns the validated raw JSON bytes.
+func decodeInlineDockerConfig(s string) ([]byte, error) {
+	trimmed := strings.TrimSpace(s)
+	// Raw JSON object provided directly.
+	if strings.HasPrefix(trimmed, "{") {
+		if err := validateDockerConfigJSON([]byte(trimmed)); err != nil {
+			return nil, err
+		}
+		return []byte(trimmed), nil
+	}
+	// Otherwise treat as base64-encoded JSON.
+	cleaned := strings.Join(strings.Fields(s), "")
+	decoded, err := base64.StdEncoding.DecodeString(cleaned)
+	if err != nil {
+		return nil, ErrInvalidDockerConfig{Reason: "value is neither valid JSON nor valid base64"}
+	}
+	if err := validateDockerConfigJSON(decoded); err != nil {
+		return nil, err
+	}
+	return decoded, nil
 }
 
 // validateDockerConfigJSON ensures data is a well-formed JSON object, mirroring the

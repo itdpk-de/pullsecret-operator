@@ -12,29 +12,34 @@ type ClusterPullSecretSpec struct {
 }
 
 // PullSecretCredentials selects the source of the registry credentials.
-// Exactly one of secretRef, encryptedData or registryCredentials must be set.
-// +kubebuilder:validation:XValidation:rule="[has(self.secretRef), has(self.encryptedData), has(self.registryCredentials)].filter(x, x).size() == 1",message="exactly one of secretRef, encryptedData or registryCredentials must be set"
+// Exactly one of secretRef, dockerConfigJson, registryCredentials or encryptedData
+// (deprecated) must be set.
+// +kubebuilder:validation:XValidation:rule="[has(self.secretRef), has(self.dockerConfigJson), has(self.registryCredentials), has(self.encryptedData)].filter(x, x).size() == 1",message="exactly one of secretRef, dockerConfigJson, registryCredentials or encryptedData must be set"
 type PullSecretCredentials struct {
 	// SecretRef points to a Secret whose referenced key already contains valid
 	// .dockerconfigjson content. The value is copied verbatim into the generated Secret.
 	// +optional
 	SecretRef *SecretKeyReference `json:"secretRef,omitempty"`
 
-	// EncryptedData contains base64-encoded .dockerconfigjson content.
-	//
-	// NOTE: despite the historical name, the operator does NOT decrypt this value;
-	// it only base64-decodes it, and the result must be valid .dockerconfigjson.
-	// For real encryption-at-rest, keep the credentials in a Secret and reference it
-	// via secretRef or registryCredentials, protecting that Secret with SOPS, Sealed
-	// Secrets, or a secrets manager.
+	// DockerConfigJson holds inline .dockerconfigjson content, either as raw JSON or
+	// base64-encoded JSON (the operator accepts both). This value is NOT encrypted and is
+	// readable by anyone who can read the ClusterPullSecret; for sensitive credentials use
+	// secretRef or registryCredentials and protect the referenced Secret at rest.
 	// +optional
-	EncryptedData string `json:"encryptedData,omitempty"`
+	DockerConfigJSON string `json:"dockerConfigJson,omitempty"`
 
 	// RegistryCredentials references a Secret whose keys hold individual credential fields
 	// (server, username, password, email). The operator assembles the .dockerconfigjson
 	// automatically, so no credential data needs to be embedded in the ClusterPullSecret spec.
 	// +optional
 	RegistryCredentials *RegistryCredentialsRef `json:"registryCredentials,omitempty"`
+
+	// EncryptedData is a deprecated alias for dockerConfigJson and is treated identically
+	// (it is NOT decrypted). Use dockerConfigJson instead.
+	//
+	// Deprecated: use dockerConfigJson.
+	// +optional
+	EncryptedData string `json:"encryptedData,omitempty"`
 }
 
 // RegistryCredentialsRef references a Kubernetes Secret that contains individual registry
