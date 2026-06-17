@@ -26,7 +26,12 @@ jobs:
       - name: go build
         run: go build ./...
 
-      - name: go test
+      - name: Install envtest binaries
+        run: |
+          go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.21
+          echo "KUBEBUILDER_ASSETS=$(setup-envtest use -p path 1.31.0)" >> "$GITHUB_ENV"
+
+      - name: go test (unit + envtest integration)
         run: go test -race ./...
 
       - name: Check generated CRDs/deepcopy are up to date
