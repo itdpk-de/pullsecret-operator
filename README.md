@@ -47,6 +47,33 @@ spec:
       key: .dockerconfigjson
 ```
 
+Using individual registry credential fields (`registryCredentials`):
+
+The operator reads the individual fields (`server`, `username`, `password`,
+`email`) from a referenced Secret and assembles a valid `.dockerconfigjson`
+automatically. No credential data is embedded in the ClusterPullSecret spec.
+
+```yaml
+apiVersion: pullsecret.pascal-kutscha.de/v1
+kind: ClusterPullSecret
+metadata:
+  name: my-registry
+spec:
+  credentials:
+    registryCredentials:
+      secretName: my-registry-credentials
+      namespace: default
+      # Optional — these are the defaults and can be omitted when your
+      # Secret uses the same key names.
+      serverKey: server
+      usernameKey: username
+      passwordKey: password
+      emailKey: email
+```
+
+See [examples/clusterpullsecret-registrycredentials.yaml](examples/clusterpullsecret-registrycredentials.yaml)
+for a full walkthrough.
+
 Using encrypted data:
 
 ```yaml
