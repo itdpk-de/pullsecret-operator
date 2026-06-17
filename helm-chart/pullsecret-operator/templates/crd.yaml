@@ -19,7 +19,23 @@ spec:
     singular: clusterpullsecret
   scope: Cluster
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.synced
+      name: Synced
+      type: boolean
+    - jsonPath: .status.reason
+      name: Reason
+      type: string
+    - jsonPath: .status.lastSyncTime
+      name: Last-Sync
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: ClusterPullSecret is the Schema for the clusterpullsecrets API.
@@ -51,9 +67,13 @@ spec:
                 properties:
                   encryptedData:
                     description: |-
-                      EncryptedData contains the credentials encrypted and base64-encoded.
-                      The decrypted value must be the raw .dockerconfigjson content.
-                      Recommended: encrypt with KMS or SOPS and store base64(encoded(ciphertext)).
+                      EncryptedData contains base64-encoded .dockerconfigjson content.
+
+                      NOTE: despite the historical name, the operator does NOT decrypt this value;
+                      it only base64-decodes it, and the result must be valid .dockerconfigjson.
+                      For real encryption-at-rest, keep the credentials in a Secret and reference it
+                      via secretRef or registryCredentials, protecting that Secret with SOPS, Sealed
+                      Secrets, or a secrets manager.
                     type: string
                   registryCredentials:
                     description: |-
@@ -95,13 +115,15 @@ spec:
                     - secretName
                     type: object
                   secretRef:
-                    description: SecretRef points to a Secret containing the credential
-                      material (backwards compatible).
+                    description: |-
+                      SecretRef points to a Secret whose referenced key already contains valid
+                      .dockerconfigjson content. The value is copied verbatim into the generated Secret.
                     properties:
                       key:
                         description: |-
-                          Key is the key within the Secret data.
-                          Example: token, password, .dockerconfigjson
+                          Key is the key within the Secret data whose value is valid .dockerconfigjson
+                          content (commonly ".dockerconfigjson"). The value is copied verbatim, so it must
+                          be a serialized ~/.docker/config.json, not a bare token or password.
                         minLength: 1
                         type: string
                       name:
@@ -118,6 +140,11 @@ spec:
                     - namespace
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: exactly one of secretRef, encryptedData or registryCredentials
+                    must be set
+                  rule: '[has(self.secretRef), has(self.encryptedData), has(self.registryCredentials)].filter(x,
+                    x).size() == 1'
             required:
             - credentials
             type: object
@@ -129,11 +156,21 @@ spec:
                   reconciled.
                 format: date-time
                 type: string
+              lastValidationTime:
+                description: |-
+                  LastValidationTime is the last time the credentials were validated, regardless
+                  of outcome. Useful to detect a stalled controller.
+                format: date-time
+                type: string
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
                   by the controller.
                 format: int64
                 type: integer
+              phase:
+                description: Phase is a coarse, human-readable summary of the sync
+                  state (Synced/OutOfSync).
+                type: string
               reason:
                 description: Reason provides a human-readable explanation when the
                   secret is not synced.

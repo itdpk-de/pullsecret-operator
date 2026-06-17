@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"time"
 
 	"github.com/pascalku/pullsecret-operator/operator/annotations"
 	"github.com/pascalku/pullsecret-operator/operator/credentials"
@@ -27,10 +28,15 @@ type ClusterPullSecretReconciler struct {
 
 const clusterFinalizer = "pullsecret.pascal-kutscha.de/finalizer"
 
+// resyncInterval is how often credentials are re-validated even without a triggering
+// event, so the status and metrics reflect e.g. a deleted source secret promptly.
+const resyncInterval = 5 * time.Minute
+
 func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	cps := &v1.ClusterPullSecret{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: req.Name}, cps); err != nil {
 		if apierrors.IsNotFound(err) {
+			clearSyncedMetric(req.Name)
 			return reconcile.Result{}, nil
 		}
 		return reconcile.Result{}, err
@@ -53,27 +59,16 @@ func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconci
 	val, keyName, err := credentials.GetCredentialBytes(ctx, r.Client, cps.Spec.Credentials)
 	if err != nil {
 		log.Printf("failed to get credentials for ClusterPullSecret %s: %v", cps.Name, err)
+		r.setStatus(ctx, cps, false, reasonForError(err))
 
-		reason := "credential-error"
-		var keyNotFoundErr credentials.ErrKeyNotFound
-		var missingFieldErr credentials.ErrMissingField
-		var noCredsErr credentials.ErrNoCredentials
-		if errors.As(err, &keyNotFoundErr) {
-			reason = "source-secret-key-missing"
-		} else if errors.As(err, &missingFieldErr) {
-			reason = "registry-credentials-field-missing"
-		} else if errors.As(err, &noCredsErr) {
-			reason = "no-credentials"
-		} else if apierrors.IsNotFound(err) {
-			reason = "source-secret-not-found"
+		// Permanent spec errors will not resolve until the resource changes (which
+		// re-triggers reconciliation), so avoid hot error-retry loops; just resync
+		// periodically. Resolvable errors (missing/invalid source secret, transient
+		// API errors) are retried with backoff.
+		if isPermanentCredentialError(err) {
+			return reconcile.Result{RequeueAfter: resyncInterval}, nil
 		}
-		
-		cps.Status.Synced = false
-		cps.Status.Reason = reason
-		if err := r.Client.Status().Update(ctx, cps); err != nil {
-			log.Printf("failed to update status for ClusterPullSecret %s: %v", cps.Name, err)
-		}
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, err
 	}
 
 	// List all secrets managed by this ClusterPullSecret
@@ -116,16 +111,67 @@ func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconci
 	}
 
 	// Update status
-	now := metav1.Now()
 	cps.Status.ObservedGeneration = cps.Generation
-	cps.Status.Synced = true
-	cps.Status.Reason = ""
-	cps.Status.LastSyncTime = &now
+	r.setStatus(ctx, cps, true, "")
+
+	// Re-validate periodically so the status/metrics catch out-of-band changes
+	// (e.g. a deleted source secret) even without a triggering event.
+	return reconcile.Result{RequeueAfter: resyncInterval}, nil
+}
+
+// setStatus updates the ClusterPullSecret status and the synced metric in one place.
+func (r *ClusterPullSecretReconciler) setStatus(ctx context.Context, cps *v1.ClusterPullSecret, synced bool, reason string) {
+	now := metav1.Now()
+	cps.Status.Synced = synced
+	cps.Status.Reason = reason
+	cps.Status.LastValidationTime = &now
+	if synced {
+		cps.Status.Phase = v1.PhaseSynced
+		cps.Status.LastSyncTime = &now
+	} else {
+		cps.Status.Phase = v1.PhaseOutOfSync
+	}
+
+	setSyncedMetric(cps.Name, synced)
+
 	if err := r.Client.Status().Update(ctx, cps); err != nil {
 		log.Printf("failed to update status for ClusterPullSecret %s: %v", cps.Name, err)
 	}
+}
 
-	return reconcile.Result{}, nil
+// reasonForError maps a credential error to a short, stable status reason suitable
+// for dashboards and alerting.
+func reasonForError(err error) string {
+	var keyNotFoundErr credentials.ErrKeyNotFound
+	var missingFieldErr credentials.ErrMissingField
+	var invalidErr credentials.ErrInvalidDockerConfig
+	var multiErr credentials.ErrMultipleCredentials
+	var noCredsErr credentials.ErrNoCredentials
+	switch {
+	case errors.As(err, &keyNotFoundErr):
+		return "source-secret-key-missing"
+	case errors.As(err, &missingFieldErr):
+		return "registry-credentials-field-missing"
+	case errors.As(err, &invalidErr):
+		return "invalid-dockerconfigjson"
+	case errors.As(err, &multiErr):
+		return "multiple-credential-sources"
+	case errors.As(err, &noCredsErr):
+		return "no-credentials"
+	case apierrors.IsNotFound(err):
+		return "source-secret-not-found"
+	default:
+		return "credential-error"
+	}
+}
+
+// isPermanentCredentialError reports whether the error is a spec-level misconfiguration
+// that will not resolve on retry (only on a resource change, which re-triggers reconcile).
+func isPermanentCredentialError(err error) bool {
+	var multiErr credentials.ErrMultipleCredentials
+	var noCredsErr credentials.ErrNoCredentials
+	var invalidErr credentials.ErrInvalidDockerConfig
+	return errors.As(err, &multiErr) || errors.As(err, &noCredsErr) || errors.As(err, &invalidErr)
 }
 
 // handleDeletion cleans up all secrets managed by this ClusterPullSecret
@@ -135,7 +181,7 @@ func (r *ClusterPullSecretReconciler) handleDeletion(ctx context.Context, cps *v
 	if err := r.Client.List(ctx, list); err != nil {
 		return reconcile.Result{}, err
 	}
-	
+
 	for _, s := range list.Items {
 		if s.Annotations == nil {
 			continue
@@ -152,6 +198,8 @@ func (r *ClusterPullSecretReconciler) handleDeletion(ctx context.Context, cps *v
 		}
 	}
 
+	clearSyncedMetric(cps.Name)
+
 	// Remove finalizer
 	controllerutil.RemoveFinalizer(cps, clusterFinalizer)
 	if err := r.Client.Update(ctx, cps); err != nil {
@@ -163,25 +211,55 @@ func (r *ClusterPullSecretReconciler) handleDeletion(ctx context.Context, cps *v
 
 func (r *ClusterPullSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Recorder = mgr.GetEventRecorderFor("clusterpullsecret-controller")
-	err := ctrl.NewControllerManagedBy(mgr).
+	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.ClusterPullSecret{}).
-		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-			secret, ok := object.(*corev1.Secret)
-			if !ok {
-				return nil
-			}
-
-			if secret.Annotations == nil {
-				return nil
-			}
-			name, ok := secret.Annotations[annotations.AnnotationSecretManagedBy.String()]
-			if !ok {
-				return nil
-			}
-
-			return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: name}}}
-		})).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.secretToClusterPullSecrets)).
 		Complete(r)
+}
 
-	return err
+// secretToClusterPullSecrets maps a Secret event to the ClusterPullSecrets that should
+// be reconciled: the one that manages a generated secret, plus any whose credential
+// source references the changed secret (so credential rotation propagates).
+func (r *ClusterPullSecretReconciler) secretToClusterPullSecrets(ctx context.Context, object client.Object) []reconcile.Request {
+	secret, ok := object.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+
+	seen := map[string]struct{}{}
+	var reqs []reconcile.Request
+	add := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, dup := seen[name]; dup {
+			return
+		}
+		seen[name] = struct{}{}
+		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKey{Name: name}})
+	}
+
+	// 1. A generated/managed secret -> its owning ClusterPullSecret.
+	if secret.Annotations != nil {
+		add(secret.Annotations[annotations.AnnotationSecretManagedBy.String()])
+	}
+
+	// 2. A source secret -> any ClusterPullSecret referencing it (credential rotation).
+	cpsList := &v1.ClusterPullSecretList{}
+	if err := r.Client.List(ctx, cpsList); err != nil {
+		log.Printf("failed to list ClusterPullSecrets for secret %s/%s: %v", secret.Namespace, secret.Name, err)
+		return reqs
+	}
+	for i := range cpsList.Items {
+		creds := cpsList.Items[i].Spec.Credentials
+		if ref := creds.SecretRef; ref != nil && ref.Namespace == secret.Namespace && ref.Name == secret.Name {
+			add(cpsList.Items[i].Name)
+			continue
+		}
+		if ref := creds.RegistryCredentials; ref != nil && ref.Namespace == secret.Namespace && ref.SecretName == secret.Name {
+			add(cpsList.Items[i].Name)
+		}
+	}
+
+	return reqs
 }

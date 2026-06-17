@@ -4,10 +4,11 @@ A Kubernetes operator that manages cluster-wide pull secrets across namespaces a
 
 ## Features
 
-- **Cluster-wide Pull Secret Management**: Define pull secrets once at the cluster level and have them automatically synced to all namespaces
-- **Deployment Annotation Support**: Automatically create pull secrets for Deployments with specific annotations
-- **Multiple Credential Sources**: Support for both encrypted credentials and secret references
-- **Event-driven**: Watches for changes and automatically reconciles secrets
+- **Cluster-wide Pull Secret Management**: Define a pull secret once at the cluster level (`ClusterPullSecret`) and have it materialized into a namespace on demand via Deployment annotations
+- **Deployment Annotation Support**: Automatically create pull secrets for Deployments carrying the `cluster-pull-secrets` annotation
+- **Multiple Credential Sources**: `secretRef`, `registryCredentials` (individual fields), or `encryptedData` (base64-encoded `.dockerconfigjson`)
+- **Event-driven with periodic re-validation**: Watches ClusterPullSecrets and their source secrets, and re-validates every few minutes so credential rotation propagates
+- **Monitoring-friendly status**: `status.phase` (`Synced`/`OutOfSync`) plus a Prometheus gauge `pullsecret_operator_clusterpullsecret_synced`
 - **RBAC Compliant**: Minimal required permissions following security best practices
 
 ## Quick Start
@@ -74,7 +75,13 @@ spec:
 See [examples/clusterpullsecret-registrycredentials.yaml](examples/clusterpullsecret-registrycredentials.yaml)
 for a full walkthrough.
 
-Using encrypted data:
+Using `encryptedData` (base64-encoded `.dockerconfigjson`):
+
+> **Note:** Despite its name, `encryptedData` is **not** decrypted by the operator —
+> it is only base64-decoded, and the result must be valid `.dockerconfigjson`. It does
+> **not** provide confidentiality (anyone with `get clusterpullsecrets` can decode it).
+> For real encryption-at-rest, prefer `secretRef`/`registryCredentials` and protect the
+> referenced Secret with SOPS, Sealed Secrets, or a secrets manager.
 
 ```yaml
 apiVersion: pullsecret.pascal-kutscha.de/v1
@@ -83,7 +90,8 @@ metadata:
   name: my-registry
 spec:
   credentials:
-    encryptedData: <base64-encoded-encrypted-credentials>
+    # base64 of a valid .dockerconfigjson document
+    encryptedData: <base64-encoded-.dockerconfigjson>
 ```
 
 Apply the resource:
@@ -203,8 +211,8 @@ See the [Helm chart README](helm-chart/pullsecret-operator/README.md) for detail
 
 The operator consists of two main controllers:
 
-1. **ClusterPullSecretReconciler**: Manages cluster-wide pull secrets and syncs them to all secrets with the managed annotation
-2. **DeploymentReconciler**: Watches Deployments with the annotation and creates/updates pull secrets in their namespaces
+1. **ClusterPullSecretReconciler**: Resolves and validates the credentials for each `ClusterPullSecret`, keeps every secret it manages (those carrying the managed-by annotation) up to date, watches the referenced source secrets so rotation propagates, re-validates periodically, and reports `status.phase`/metrics. It does **not** blanket-create secrets in every namespace.
+2. **DeploymentReconciler**: Watches Deployments with the annotation, creates/updates the `pullsecret-<name>` secret in their namespace, and cleans it up when the annotation is removed (owner-reference based).
 
 ## Configuration
 

@@ -32,15 +32,38 @@ spec:
           {{- toYaml .Values.securityContext | nindent 12 }}
         image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
-        resources:
-          {{- toYaml .Values.resources | nindent 12 }}
-        {{- if .Values.leaderElection.enabled }}
+        ports:
+        - name: metrics
+          containerPort: {{ .Values.metrics.port }}
+          protocol: TCP
+        - name: health
+          containerPort: {{ .Values.health.port }}
+          protocol: TCP
         env:
+        - name: METRICS_BIND_ADDRESS
+          value: ":{{ .Values.metrics.port }}"
+        - name: HEALTH_PROBE_BIND_ADDRESS
+          value: ":{{ .Values.health.port }}"
+        {{- if .Values.leaderElection.enabled }}
         - name: ENABLE_LEADER_ELECTION
           value: "true"
         - name: LEADER_ELECTION_NAMESPACE
           value: {{ .Values.leaderElection.namespace }}
         {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

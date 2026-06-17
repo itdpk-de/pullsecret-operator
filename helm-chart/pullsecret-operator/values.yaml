@@ -51,6 +51,14 @@ tolerations: []
 
 affinity: {}
 
+# Prometheus metrics endpoint (serves /metrics)
+metrics:
+  port: 8080
+
+# Health/readiness probe endpoint (serves /healthz and /readyz)
+health:
+  port: 8081
+
 # Leader election configuration
 leaderElection:
   enabled: false

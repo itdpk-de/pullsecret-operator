@@ -5,6 +5,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/pascalku/pullsecret-operator/operator/controllers"
 	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
@@ -12,8 +13,10 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 func init() {
@@ -27,13 +30,30 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	log.Println("Starting ClusterPullSecret operator...")
+
+	enableLeaderElection := os.Getenv("ENABLE_LEADER_ELECTION") == "true"
+	leaderElectionNamespace := getEnvDefault("LEADER_ELECTION_NAMESPACE", "kube-system")
+	metricsAddr := getEnvDefault("METRICS_BIND_ADDRESS", ":8080")
+	healthAddr := getEnvDefault("HEALTH_PROBE_BIND_ADDRESS", ":8081")
+
 	mgr, err := manager.New(config.GetConfigOrDie(), manager.Options{
-		LeaderElection:          false,
+		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "kube-leader-pullsecret.pascal-kutscha.de",
-		LeaderElectionNamespace: "kube-system",
+		LeaderElectionNamespace: leaderElectionNamespace,
+		Metrics: metricsserver.Options{
+			BindAddress: metricsAddr,
+		},
+		HealthProbeBindAddress: healthAddr,
 	})
 	if err != nil {
 		log.Fatalf("Failed to create manager: %v", err)
+	}
+
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		log.Fatalf("Failed to set up health check: %v", err)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		log.Fatalf("Failed to set up ready check: %v", err)
 	}
 
 	if err := (&controllers.ClusterPullSecretReconciler{
@@ -51,4 +71,11 @@ func main() {
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Fatalf("Manager exited non-zero: %v", err)
 	}
+}
+
+func getEnvDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

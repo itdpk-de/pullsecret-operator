@@ -11,15 +11,22 @@ type ClusterPullSecretSpec struct {
 	Credentials PullSecretCredentials `json:"credentials"`
 }
 
-// PullSecretCredentials references the secret holding registry credentials or embeds encrypted data.
+// PullSecretCredentials selects the source of the registry credentials.
+// Exactly one of secretRef, encryptedData or registryCredentials must be set.
+// +kubebuilder:validation:XValidation:rule="[has(self.secretRef), has(self.encryptedData), has(self.registryCredentials)].filter(x, x).size() == 1",message="exactly one of secretRef, encryptedData or registryCredentials must be set"
 type PullSecretCredentials struct {
-	// SecretRef points to a Secret containing the credential material (backwards compatible).
+	// SecretRef points to a Secret whose referenced key already contains valid
+	// .dockerconfigjson content. The value is copied verbatim into the generated Secret.
 	// +optional
 	SecretRef *SecretKeyReference `json:"secretRef,omitempty"`
 
-	// EncryptedData contains the credentials encrypted and base64-encoded.
-	// The decrypted value must be the raw .dockerconfigjson content.
-	// Recommended: encrypt with KMS or SOPS and store base64(encoded(ciphertext)).
+	// EncryptedData contains base64-encoded .dockerconfigjson content.
+	//
+	// NOTE: despite the historical name, the operator does NOT decrypt this value;
+	// it only base64-decodes it, and the result must be valid .dockerconfigjson.
+	// For real encryption-at-rest, keep the credentials in a Secret and reference it
+	// via secretRef or registryCredentials, protecting that Secret with SOPS, Sealed
+	// Secrets, or a secrets manager.
 	// +optional
 	EncryptedData string `json:"encryptedData,omitempty"`
 
@@ -73,8 +80,9 @@ type SecretKeyReference struct {
 	// +kubebuilder:validation:MinLength=1
 	Namespace string `json:"namespace"`
 
-	// Key is the key within the Secret data.
-	// Example: token, password, .dockerconfigjson
+	// Key is the key within the Secret data whose value is valid .dockerconfigjson
+	// content (commonly ".dockerconfigjson"). The value is copied verbatim, so it must
+	// be a serialized ~/.docker/config.json, not a bare token or password.
 	// +kubebuilder:validation:MinLength=1
 	Key string `json:"key"`
 }
@@ -83,10 +91,26 @@ type SecretKeyReference struct {
 // Status
 //
 
+// ClusterPullSecretPhase is a coarse, human-readable summary of the sync state,
+// suitable for dashboards and alerting.
+type ClusterPullSecretPhase string
+
+const (
+	// PhaseSynced means the credentials are valid and all managed secrets are up to date.
+	PhaseSynced ClusterPullSecretPhase = "Synced"
+	// PhaseOutOfSync means the credentials could not be resolved/validated, so managed
+	// secrets may be stale or missing.
+	PhaseOutOfSync ClusterPullSecretPhase = "OutOfSync"
+)
+
 // ClusterPullSecretStatus defines the observed state of ClusterPullSecret.
 type ClusterPullSecretStatus struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Phase is a coarse, human-readable summary of the sync state (Synced/OutOfSync).
+	// +optional
+	Phase ClusterPullSecretPhase `json:"phase,omitempty"`
 
 	// Synced indicates whether the pull secret is currently valid and usable.
 	Synced bool `json:"synced,omitempty"`
@@ -97,6 +121,11 @@ type ClusterPullSecretStatus struct {
 	// LastSyncTime is the last time the secret was successfully reconciled.
 	// +optional
 	LastSyncTime *metav1.Time `json:"lastSyncTime,omitempty"`
+
+	// LastValidationTime is the last time the credentials were validated, regardless
+	// of outcome. Useful to detect a stalled controller.
+	// +optional
+	LastValidationTime *metav1.Time `json:"lastValidationTime,omitempty"`
 }
 
 //
@@ -106,6 +135,11 @@ type ClusterPullSecretStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName=cps
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Synced",type=boolean,JSONPath=`.status.synced`
+// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.reason`
+// +kubebuilder:printcolumn:name="Last-Sync",type=date,JSONPath=`.status.lastSyncTime`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ClusterPullSecret is the Schema for the clusterpullsecrets API.
 type ClusterPullSecret struct {
