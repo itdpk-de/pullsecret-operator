@@ -100,9 +100,11 @@ Apply the resource:
 kubectl apply -f clusterpullsecret.yaml
 ```
 
-#### Annotate a Deployment
+#### Annotate a workload
 
-Add the annotation to your Deployment to automatically get pull secrets:
+Add the annotation to a workload to automatically get its pull secret. Supported
+kinds: **Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob**. Multiple
+ClusterPullSecrets can be listed comma-separated.
 
 ```yaml
 apiVersion: apps/v1
@@ -110,12 +112,14 @@ kind: Deployment
 metadata:
   name: my-app
   annotations:
-    pullsecret.pascal-kutscha.de/cluster-pull-secrets: "my-registry"
+    pullsecret.pascal-kutscha.de/cluster-pull-secrets: "my-registry,other-registry"
 spec:
-  # ... deployment spec
+  # ... workload spec
 ```
 
-The operator will automatically create a secret named `pullsecret-my-registry` in the same namespace as the Deployment.
+The operator creates a secret named `pullsecret-<clusterpullsecret-name>` in the
+workload's namespace. Reference it via `imagePullSecrets`. When the annotation is
+removed, the secret is cleaned up (owner-reference based).
 
 ## Docker Image
 
