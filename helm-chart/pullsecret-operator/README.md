@@ -52,10 +52,16 @@ The following table lists the configurable parameters of the chart and their def
 | `registryValidation.enabled` | Active registry-login validation | `true` |
 | `registryValidation.timeoutSeconds` | Per-request timeout | `10` |
 | `registryValidation.intervalSeconds` | How often to re-check registry logins | `1800` |
+| `registryValidation.caBundle.configMapName` | ConfigMap with a CA bundle for private registries | `""` |
+| `registryValidation.caBundle.key` | Key in that ConfigMap | `ca.crt` |
 | `webhook.enabled` | Enable the Pod imagePullSecrets injection webhook | `false` |
 | `webhook.port` | Webhook server port | `9443` |
 | `webhook.failurePolicy` | Webhook failure policy (`Ignore`/`Fail`) | `Ignore` |
-| `webhook.namespaceSelector` | Limit which namespaces the webhook acts on | `{}` |
+| `webhook.certManager.enabled` | Use cert-manager for the serving cert (GitOps-friendly) | `false` |
+| `webhook.namespaceSelector` | Limit which namespaces the webhook acts on | excludes `kube-system`/`kube-node-lease` |
+| `podDisruptionBudget.enabled` | Create a PodDisruptionBudget | `false` |
+| `podDisruptionBudget.minAvailable` | PDB minAvailable | `1` |
+| `affinity` | Pod affinity (defaults to soft anti-affinity) | soft anti-affinity |
 
 ## Usage
 

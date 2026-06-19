@@ -11,12 +11,14 @@ import (
 	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -25,8 +27,11 @@ import (
 // StatefulSet, DaemonSet, ReplicaSet, Job, CronJob, ...) so the same logic serves every
 // type that can reference imagePullSecrets.
 type WorkloadReconciler struct {
-	Client   client.Client
-	Recorder record.EventRecorder
+	Client client.Client
+	// APIReader is an uncached reader used to fetch source secrets, which are
+	// intentionally not part of the (label-scoped) controller cache.
+	APIReader client.Reader
+	Recorder  record.EventRecorder
 
 	// Name is the controller name (also used for logging).
 	Name string
@@ -34,6 +39,15 @@ type WorkloadReconciler struct {
 	GVK schema.GroupVersionKind
 	// New returns a fresh, empty instance of the workload type.
 	New func() client.Object
+	// NewList returns a fresh, empty list for the workload type.
+	NewList func() client.ObjectList
+}
+
+func (r *WorkloadReconciler) reader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
 }
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -71,7 +85,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 			continue
 		}
 
-		val, keyName, err := credentials.GetCredentialBytes(ctx, r.Client, cps.Spec.Credentials)
+		val, keyName, err := credentials.GetCredentialBytes(ctx, r.reader(), cps.Spec.Credentials)
 		if err != nil {
 			log.Printf("[%s] failed to get credentials for ClusterPullSecret %s: %v", r.Name, name, err)
 			errs = append(errs, err)
@@ -87,6 +101,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: namespace,
 					Name:      secretName,
+					Labels: map[string]string{
+						annotations.LabelManaged: annotations.LabelManagedValue,
+					},
 					Annotations: map[string]string{
 						annotations.AnnotationSecretManagedBy.String(): name,
 					},
@@ -125,6 +142,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		}
 		if target.Annotations[annotations.AnnotationSecretManagedBy.String()] != name {
 			target.Annotations[annotations.AnnotationSecretManagedBy.String()] = name
+			changed = true
+		}
+		if target.Labels[annotations.LabelManaged] != annotations.LabelManagedValue {
+			if target.Labels == nil {
+				target.Labels = map[string]string{}
+			}
+			target.Labels[annotations.LabelManaged] = annotations.LabelManagedValue
 			changed = true
 		}
 		if !hasOwnerReference(target.OwnerReferences, obj.GetUID()) {
@@ -200,10 +224,65 @@ func (r *WorkloadReconciler) ownerRef(obj client.Object) metav1.OwnerReference {
 
 func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Recorder = mgr.GetEventRecorderFor("clusterpullsecret-workload-controller")
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name).
 		For(r.New()).
+		// Recreate/refresh managed secrets if they are deleted or edited out-of-band.
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.secretToWorkload)).
+		// Reconcile workloads when a referenced ClusterPullSecret is (re)created.
+		Watches(&v1.ClusterPullSecret{}, handler.EnqueueRequestsFromMapFunc(r.clusterPullSecretToWorkloads)).
 		Complete(r)
+}
+
+// secretToWorkload maps a managed Secret event back to the owning workload(s) of this
+// reconciler's kind, so a deleted/edited secret is recreated.
+func (r *WorkloadReconciler) secretToWorkload(_ context.Context, object client.Object) []reconcile.Request {
+	secret, ok := object.(*corev1.Secret)
+	if !ok {
+		return nil
+	}
+	apiVersion := r.GVK.GroupVersion().String()
+	var reqs []reconcile.Request
+	for _, ref := range secret.GetOwnerReferences() {
+		if ref.APIVersion == apiVersion && ref.Kind == r.GVK.Kind {
+			reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKey{Namespace: secret.GetNamespace(), Name: ref.Name}})
+		}
+	}
+	return reqs
+}
+
+// clusterPullSecretToWorkloads maps a ClusterPullSecret event to the workloads of this
+// reconciler's kind that reference it, so secrets get created even when the workload was
+// annotated before the ClusterPullSecret existed.
+func (r *WorkloadReconciler) clusterPullSecretToWorkloads(ctx context.Context, object client.Object) []reconcile.Request {
+	cpsName := object.GetName()
+	list := r.NewList()
+	if err := r.Client.List(ctx, list); err != nil {
+		log.Printf("[%s] failed to list workloads for ClusterPullSecret %s: %v", r.Name, cpsName, err)
+		return nil
+	}
+	items, err := apimeta.ExtractList(list)
+	if err != nil {
+		log.Printf("[%s] failed to extract workload list: %v", r.Name, err)
+		return nil
+	}
+	var reqs []reconcile.Request
+	for _, item := range items {
+		acc, err := apimeta.Accessor(item)
+		if err != nil {
+			continue
+		}
+		for _, name := range annotations.GetClusterPullSecrets(acc.GetAnnotations()) {
+			if name == cpsName {
+				reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKey{Namespace: acc.GetNamespace(), Name: acc.GetName()}})
+				break
+			}
+		}
+	}
+	return reqs
 }
 
 // hasOwnerReference checks if the given UID exists in the owner references list.

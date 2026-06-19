@@ -36,9 +36,10 @@ type dockerConfig struct {
 // GetCredentialBytes retrieves credential bytes from a ClusterPullSecret's credentials.
 // It always returns the data keyed under DockerConfigKeyName (.dockerconfigjson) so the
 // generated Secret is a valid kubernetes.io/dockerconfigjson Secret regardless of source.
-// It supports encryptedData, secretRef, and registryCredentials methods, exactly one of
-// which must be set.
-func GetCredentialBytes(ctx context.Context, c client.Client, creds v1.PullSecretCredentials) ([]byte, string, error) {
+// It supports dockerConfigJson/encryptedData, secretRef, and registryCredentials methods,
+// exactly one of which must be set. The reader is used for source-secret lookups and may
+// be an uncached API reader (source secrets are intentionally not cached).
+func GetCredentialBytes(ctx context.Context, c client.Reader, creds v1.PullSecretCredentials) ([]byte, string, error) {
 	// Exactly one credential source must be provided.
 	sources := 0
 	if creds.SecretRef != nil {

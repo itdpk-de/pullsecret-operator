@@ -24,8 +24,11 @@ import (
 )
 
 type ClusterPullSecretReconciler struct {
-	Client   client.Client
-	Recorder record.EventRecorder
+	Client client.Client
+	// APIReader is an uncached reader used to fetch source secrets, which are
+	// intentionally not part of the (label-scoped) controller cache.
+	APIReader client.Reader
+	Recorder  record.EventRecorder
 	// RegistryValidator, when set, actively checks the resolved credentials against
 	// each referenced registry to detect expired/invalid credentials. Optional.
 	RegistryValidator registry.Validator
@@ -69,8 +72,8 @@ func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconci
 		}
 	}
 
-	// Obtain credentials using the shared helper
-	val, keyName, err := credentials.GetCredentialBytes(ctx, r.Client, cps.Spec.Credentials)
+	// Obtain credentials using the shared helper (uncached reader for source secrets)
+	val, keyName, err := credentials.GetCredentialBytes(ctx, r.reader(), cps.Spec.Credentials)
 	if err != nil {
 		log.Printf("failed to get credentials for ClusterPullSecret %s: %v", cps.Name, err)
 		r.setStatus(ctx, cps, false, reasonForError(err))
@@ -295,57 +298,36 @@ func (r *ClusterPullSecretReconciler) handleDeletion(ctx context.Context, cps *v
 	return reconcile.Result{}, nil
 }
 
+func (r *ClusterPullSecretReconciler) reader() client.Reader {
+	if r.APIReader != nil {
+		return r.APIReader
+	}
+	return r.Client
+}
+
 func (r *ClusterPullSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.Recorder = mgr.GetEventRecorderFor("clusterpullsecret-controller")
+	if r.APIReader == nil {
+		r.APIReader = mgr.GetAPIReader()
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1.ClusterPullSecret{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.secretToClusterPullSecrets)).
 		Complete(r)
 }
 
-// secretToClusterPullSecrets maps a Secret event to the ClusterPullSecrets that should
-// be reconciled: the one that manages a generated secret, plus any whose credential
-// source references the changed secret (so credential rotation propagates).
+// secretToClusterPullSecrets maps a managed Secret event to its owning ClusterPullSecret
+// so that manual edits/deletions of a generated secret are reconciled. Source secrets are
+// not cached/watched (to avoid caching every Secret in the cluster); credential rotation
+// is instead picked up by the periodic resync.
 func (r *ClusterPullSecretReconciler) secretToClusterPullSecrets(ctx context.Context, object client.Object) []reconcile.Request {
 	secret, ok := object.(*corev1.Secret)
-	if !ok {
+	if !ok || secret.Annotations == nil {
 		return nil
 	}
-
-	seen := map[string]struct{}{}
-	var reqs []reconcile.Request
-	add := func(name string) {
-		if name == "" {
-			return
-		}
-		if _, dup := seen[name]; dup {
-			return
-		}
-		seen[name] = struct{}{}
-		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKey{Name: name}})
+	name := secret.Annotations[annotations.AnnotationSecretManagedBy.String()]
+	if name == "" {
+		return nil
 	}
-
-	// 1. A generated/managed secret -> its owning ClusterPullSecret.
-	if secret.Annotations != nil {
-		add(secret.Annotations[annotations.AnnotationSecretManagedBy.String()])
-	}
-
-	// 2. A source secret -> any ClusterPullSecret referencing it (credential rotation).
-	cpsList := &v1.ClusterPullSecretList{}
-	if err := r.Client.List(ctx, cpsList); err != nil {
-		log.Printf("failed to list ClusterPullSecrets for secret %s/%s: %v", secret.Namespace, secret.Name, err)
-		return reqs
-	}
-	for i := range cpsList.Items {
-		creds := cpsList.Items[i].Spec.Credentials
-		if ref := creds.SecretRef; ref != nil && ref.Namespace == secret.Namespace && ref.Name == secret.Name {
-			add(cpsList.Items[i].Name)
-			continue
-		}
-		if ref := creds.RegistryCredentials; ref != nil && ref.Namespace == secret.Namespace && ref.SecretName == secret.Name {
-			add(cpsList.Items[i].Name)
-		}
-	}
-
-	return reqs
+	return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: name}}}
 }

@@ -55,6 +55,10 @@ spec:
           value: {{ .Values.registryValidation.timeoutSeconds | quote }}
         - name: REGISTRY_VALIDATION_INTERVAL_SECONDS
           value: {{ .Values.registryValidation.intervalSeconds | quote }}
+        {{- if .Values.registryValidation.caBundle.configMapName }}
+        - name: REGISTRY_CA_BUNDLE_FILE
+          value: /etc/pullsecret/ca/{{ .Values.registryValidation.caBundle.key }}
+        {{- end }}
         {{- if .Values.webhook.enabled }}
         - name: WEBHOOK_ENABLED
           value: "true"
@@ -83,17 +87,31 @@ spec:
           periodSeconds: 10
         resources:
           {{- toYaml .Values.resources | nindent 12 }}
-        {{- if .Values.webhook.enabled }}
+        {{- if or .Values.webhook.enabled .Values.registryValidation.caBundle.configMapName }}
         volumeMounts:
+        {{- if .Values.webhook.enabled }}
         - name: webhook-certs
           mountPath: /tmp/k8s-webhook-server/serving-certs
           readOnly: true
         {{- end }}
-      {{- if .Values.webhook.enabled }}
+        {{- if .Values.registryValidation.caBundle.configMapName }}
+        - name: registry-ca
+          mountPath: /etc/pullsecret/ca
+          readOnly: true
+        {{- end }}
+        {{- end }}
+      {{- if or .Values.webhook.enabled .Values.registryValidation.caBundle.configMapName }}
       volumes:
+      {{- if .Values.webhook.enabled }}
       - name: webhook-certs
         secret:
           secretName: {{ include "pullsecret-operator.fullname" . }}-webhook-cert
+      {{- end }}
+      {{- if .Values.registryValidation.caBundle.configMapName }}
+      - name: registry-ca
+        configMap:
+          name: {{ .Values.registryValidation.caBundle.configMapName }}
+      {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

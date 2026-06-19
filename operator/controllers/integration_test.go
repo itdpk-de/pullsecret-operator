@@ -160,6 +160,22 @@ func TestIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("deleted managed secret is recreated on reconcile", func(t *testing.T) {
+		got := &corev1.Secret{}
+		if err := k8s.Get(ctx, secretKey, got); err != nil {
+			t.Fatalf("precondition: secret should exist: %v", err)
+		}
+		if err := k8s.Delete(ctx, got); err != nil {
+			t.Fatalf("delete secret: %v", err)
+		}
+		if _, err := wr.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(dep)}); err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+		if err := k8s.Get(ctx, secretKey, &corev1.Secret{}); err != nil {
+			t.Fatalf("expected secret to be recreated: %v", err)
+		}
+	})
+
 	t.Run("removing the annotation cleans up the secret", func(t *testing.T) {
 		cur := &appsv1.Deployment{}
 		if err := k8s.Get(ctx, client.ObjectKeyFromObject(dep), cur); err != nil {

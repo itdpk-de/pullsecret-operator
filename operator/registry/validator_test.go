@@ -38,7 +38,7 @@ func TestValidateBasicAuthSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	v := NewHTTPValidator(2 * time.Second)
+	v := NewHTTPValidator(2*time.Second, "")
 	results := v.Validate(context.Background(), dockerCfg(srv.URL, "user", "pass"))
 	if len(results) != 1 {
 		t.Fatalf("got %d results, want 1", len(results))
@@ -55,7 +55,7 @@ func TestValidateBasicAuthFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	v := NewHTTPValidator(2 * time.Second)
+	v := NewHTTPValidator(2*time.Second, "")
 	results := v.Validate(context.Background(), dockerCfg(srv.URL, "user", "wrong"))
 	if results[0].State != StateAuthFailed {
 		t.Fatalf("state = %v, want AuthFailed", results[0].State)
@@ -82,7 +82,7 @@ func TestValidateBearerSuccess(t *testing.T) {
 	defer srv.Close()
 	tokenURL = srv.URL + "/token"
 
-	v := NewHTTPValidator(2 * time.Second)
+	v := NewHTTPValidator(2*time.Second, "")
 	results := v.Validate(context.Background(), dockerCfg(srv.URL, "user", "pass"))
 	if results[0].State != StateOK {
 		t.Fatalf("state = %v (%s), want OK", results[0].State, results[0].Reason)
@@ -102,7 +102,7 @@ func TestValidateBearerAuthFailed(t *testing.T) {
 	defer srv.Close()
 	tokenURL = srv.URL + "/token"
 
-	v := NewHTTPValidator(2 * time.Second)
+	v := NewHTTPValidator(2*time.Second, "")
 	results := v.Validate(context.Background(), dockerCfg(srv.URL, "user", "bad"))
 	if results[0].State != StateAuthFailed {
 		t.Fatalf("state = %v, want AuthFailed", results[0].State)
@@ -110,7 +110,7 @@ func TestValidateBearerAuthFailed(t *testing.T) {
 }
 
 func TestValidateUnreachable(t *testing.T) {
-	v := NewHTTPValidator(500 * time.Millisecond)
+	v := NewHTTPValidator(500*time.Millisecond, "")
 	// Reserved TEST-NET-1 address, should not connect.
 	results := v.Validate(context.Background(), dockerCfg("http://192.0.2.1:9", "user", "pass"))
 	if results[0].State != StateUnreachable {

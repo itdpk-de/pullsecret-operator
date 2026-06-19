@@ -7,7 +7,7 @@ A Kubernetes operator that manages cluster-wide pull secrets across namespaces a
 - **Cluster-wide Pull Secret Management**: Define a pull secret once at the cluster level (`ClusterPullSecret`) and have it materialized into a namespace on demand via Deployment annotations
 - **Deployment Annotation Support**: Automatically create pull secrets for Deployments carrying the `cluster-pull-secrets` annotation
 - **Multiple Credential Sources**: `secretRef`, `registryCredentials` (individual fields), or `encryptedData` (base64-encoded `.dockerconfigjson`)
-- **Event-driven with periodic re-validation**: Watches ClusterPullSecrets and their source secrets, and re-validates every few minutes so credential rotation propagates
+- **Event-driven with periodic re-validation**: Watches ClusterPullSecrets and the secrets it manages, and re-validates every few minutes so credential rotation in the source secret propagates
 - **Monitoring-friendly status**: `status.phase` (`Synced`/`OutOfSync`) plus a Prometheus gauge `pullsecret_operator_clusterpullsecret_synced`
 - **RBAC Compliant**: Minimal required permissions following security best practices
 
@@ -136,9 +136,18 @@ helm upgrade --install pullsecret-operator ./helm-chart/pullsecret-operator \
 
 Because it mutates the **Pod** and not the Deployment/CR, the change is invisible to
 GitOps controllers (Argo CD / Flux) and does **not** cause reconciliation loops or
-endless rollouts. The chart generates a self-signed serving certificate (reused across
-upgrades). The default `failurePolicy: Ignore` means Pod creation is never blocked if the
-operator is unavailable.
+endless rollouts. The default `failurePolicy: Ignore` means Pod creation is never blocked
+if the operator is unavailable, and the webhook ignores `kube-system`/`kube-node-lease` by
+default (`webhook.namespaceSelector`).
+
+> **GitOps + certificate:** by default the chart generates a self-signed serving cert and
+> reuses it via Helm `lookup`. Tools that render with `helm template` (Argo CD/Flux) have
+> no cluster `lookup`, so the cert/`caBundle` would regenerate on every sync. For those,
+> set `webhook.certManager.enabled=true` to manage the cert via **cert-manager** (CA is
+> injected into the webhook config), which is fully GitOps-stable.
+
+For HA, run multiple replicas with `leaderElection.enabled=true` and
+`podDisruptionBudget.enabled=true` (replicas spread via the default soft anti-affinity).
 
 ## Docker Image
 
@@ -234,7 +243,7 @@ See the [Helm chart README](helm-chart/pullsecret-operator/README.md) for detail
 
 The operator consists of two main controllers:
 
-1. **ClusterPullSecretReconciler**: Resolves and validates the credentials for each `ClusterPullSecret`, keeps every secret it manages (those carrying the managed-by annotation) up to date, watches the referenced source secrets so rotation propagates, re-validates periodically, and reports `status.phase`/metrics. It does **not** blanket-create secrets in every namespace.
+1. **ClusterPullSecretReconciler**: Resolves and validates the credentials for each `ClusterPullSecret`, keeps every secret it manages (those carrying the managed-by annotation) up to date, and re-validates periodically (so source-secret rotation propagates within the resync interval), reporting `status.phase`/metrics. It only caches the secrets it manages — source secrets are read uncached — and does **not** blanket-create secrets in every namespace.
 2. **DeploymentReconciler**: Watches Deployments with the annotation, creates/updates the `pullsecret-<name>` secret in their namespace, and cleans it up when the annotation is removed (owner-reference based).
 
 ## Monitoring & credential validation
@@ -267,6 +276,11 @@ network egress from the operator; disable it with `registryValidation.enabled: f
 (blocked egress is treated as "inconclusive", not a failure). Structural validation
 re-runs on every change and every ~5 minutes; the active registry login is throttled to
 `registryValidation.intervalSeconds` (default 30 minutes) to avoid registry rate limits.
+It honors `HTTP(S)_PROXY` and can trust a private CA via `registryValidation.caBundle`.
+
+> The active check is best-effort: registries that issue anonymous tokens even for invalid
+> credentials may report `OK`. Treat `registry_auth_ok == 0` as a reliable failure signal,
+> and `1` as "not definitively broken".
 
 Scrape the metrics with the bundled `Service` (`metrics.service.enabled`, default on) or a
 `ServiceMonitor` (`serviceMonitor.enabled`, requires the Prometheus Operator).

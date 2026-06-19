@@ -7,11 +7,15 @@ package registry
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -46,12 +50,33 @@ type HTTPValidator struct {
 	Client *http.Client
 }
 
-// NewHTTPValidator returns an HTTPValidator with a sensible default timeout.
-func NewHTTPValidator(timeout time.Duration) *HTTPValidator {
+// NewHTTPValidator returns an HTTPValidator with a sensible default timeout. It honors
+// HTTP(S)_PROXY/NO_PROXY from the environment. If caBundlePath is non-empty, the PEM file
+// at that path is added to the system trust pool so private registries with a custom CA
+// can be validated.
+//
+// Note: this is a best-effort check. Registries that hand out anonymous tokens even for
+// invalid credentials may report OK; treat StateOK as "not definitively broken" rather
+// than a hard guarantee.
+func NewHTTPValidator(timeout time.Duration, caBundlePath string) *HTTPValidator {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return &HTTPValidator{Client: &http.Client{Timeout: timeout}}
+	transport := http.DefaultTransport.(*http.Transport).Clone() // keeps Proxy: ProxyFromEnvironment
+	if caBundlePath != "" {
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if pem, err := os.ReadFile(caBundlePath); err != nil {
+			log.Printf("registry validator: could not read CA bundle %s: %v", caBundlePath, err)
+		} else if !pool.AppendCertsFromPEM(pem) {
+			log.Printf("registry validator: no valid certificates in CA bundle %s", caBundlePath)
+		} else {
+			transport.TLSClientConfig = &tls.Config{RootCAs: pool}
+		}
+	}
+	return &HTTPValidator{Client: &http.Client{Timeout: timeout, Transport: transport}}
 }
 
 type dockerConfig struct {

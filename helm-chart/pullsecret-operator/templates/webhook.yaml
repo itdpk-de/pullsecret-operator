@@ -3,11 +3,41 @@
 {{- $svc := printf "%s-webhook" $fullname }}
 {{- $ns := .Values.namespace }}
 {{- $secretName := printf "%s-webhook-cert" $fullname }}
+{{- $certName := printf "%s-webhook" $fullname }}
 {{- $altNames := list $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns) }}
-{{- $existing := lookup "v1" "Secret" $ns $secretName }}
 {{- $caCrt := "" }}
 {{- $tlsCrt := "" }}
 {{- $tlsKey := "" }}
+{{- if .Values.webhook.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $fullname }}-selfsigned
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pullsecret-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $certName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pullsecret-operator.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $secretName }}
+  dnsNames:
+    {{- range $altNames }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: {{ $fullname }}-selfsigned
+    kind: Issuer
+---
+{{- else }}
+{{- $existing := lookup "v1" "Secret" $ns $secretName }}
 {{- if and $existing $existing.data (hasKey $existing.data "ca.crt") }}
 {{- $caCrt = index $existing.data "ca.crt" }}
 {{- $tlsCrt = index $existing.data "tls.crt" }}
@@ -32,6 +62,7 @@ data:
   tls.key: {{ $tlsKey }}
   ca.crt: {{ $caCrt }}
 ---
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -53,6 +84,10 @@ metadata:
   name: {{ $fullname }}-pod-injector
   labels:
     {{- include "pullsecret-operator.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ $ns }}/{{ $certName }}
+  {{- end }}
 webhooks:
 - name: pods.pullsecret.pascal-kutscha.de
   admissionReviewVersions: ["v1"]
@@ -65,7 +100,9 @@ webhooks:
       namespace: {{ $ns }}
       path: /mutate-v1-pod
       port: 443
+    {{- if not .Values.webhook.certManager.enabled }}
     caBundle: {{ $caCrt }}
+    {{- end }}
   rules:
   - apiGroups: [""]
     apiVersions: ["v1"]
