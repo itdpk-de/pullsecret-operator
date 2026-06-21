@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pascalku/pullsecret-operator/operator/annotations"
@@ -173,6 +174,39 @@ func TestIntegration(t *testing.T) {
 		}
 		if err := k8s.Get(ctx, secretKey, &corev1.Secret{}); err != nil {
 			t.Fatalf("expected secret to be recreated: %v", err)
+		}
+	})
+
+	t.Run("credential error emits a Warning event", func(t *testing.T) {
+		rec := record.NewFakeRecorder(20)
+		broken := &v1.ClusterPullSecret{
+			ObjectMeta: metav1.ObjectMeta{Name: "broken"},
+			Spec: v1.ClusterPullSecretSpec{Credentials: v1.PullSecretCredentials{
+				SecretRef: &v1.SecretKeyReference{Namespace: "default", Name: "does-not-exist", Key: ".dockerconfigjson"},
+			}},
+		}
+		if err := k8s.Create(ctx, broken); err != nil {
+			t.Fatalf("create broken cps: %v", err)
+		}
+		brokenCR := &ClusterPullSecretReconciler{Client: k8s, APIReader: k8s, Recorder: rec}
+		// Returns an error (source secret missing) which is expected; we only assert the event/status.
+		_, _ = brokenCR.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKey{Name: "broken"}})
+
+		select {
+		case e := <-rec.Events:
+			if !strings.Contains(e, "Warning") || !strings.Contains(e, "CredentialError") {
+				t.Fatalf("event = %q, want a Warning CredentialError", e)
+			}
+		default:
+			t.Fatal("expected a Warning event, got none")
+		}
+
+		got := &v1.ClusterPullSecret{}
+		if err := k8s.Get(ctx, client.ObjectKey{Name: "broken"}, got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Status.Phase != v1.PhaseOutOfSync || got.Status.Reason != "source-secret-not-found" {
+			t.Fatalf("status = phase:%q reason:%q, want OutOfSync/source-secret-not-found", got.Status.Phase, got.Status.Reason)
 		}
 	})
 

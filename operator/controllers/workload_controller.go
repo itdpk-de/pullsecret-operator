@@ -17,8 +17,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -78,6 +80,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		if err := r.Client.Get(ctx, client.ObjectKey{Name: name}, cps); err != nil {
 			if apierrors.IsNotFound(err) {
 				log.Printf("[%s] ClusterPullSecret %s not found, skipping.", r.Name, name)
+				r.Recorder.Eventf(obj, "Warning", "ClusterPullSecretNotFound", "ClusterPullSecret %q not found", name)
 				continue
 			}
 			log.Printf("[%s] error fetching ClusterPullSecret %s: %v", r.Name, name, err)
@@ -88,6 +91,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		val, keyName, err := credentials.GetCredentialBytes(ctx, r.reader(), cps.Spec.Credentials)
 		if err != nil {
 			log.Printf("[%s] failed to get credentials for ClusterPullSecret %s: %v", r.Name, name, err)
+			r.Recorder.Eventf(obj, "Warning", "CredentialError", "ClusterPullSecret %q: %v", name, err)
 			errs = append(errs, err)
 			continue
 		}
@@ -232,8 +236,11 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(r.New()).
 		// Recreate/refresh managed secrets if they are deleted or edited out-of-band.
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.secretToWorkload)).
-		// Reconcile workloads when a referenced ClusterPullSecret is (re)created.
-		Watches(&v1.ClusterPullSecret{}, handler.EnqueueRequestsFromMapFunc(r.clusterPullSecretToWorkloads)).
+		// Reconcile workloads when a referenced ClusterPullSecret is (re)created or its
+		// spec changes. Ignore status-only updates so periodic status churn does not
+		// re-reconcile every workload.
+		Watches(&v1.ClusterPullSecret{}, handler.EnqueueRequestsFromMapFunc(r.clusterPullSecretToWorkloads),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Complete(r)
 }
 

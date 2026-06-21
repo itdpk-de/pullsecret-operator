@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/pascalku/pullsecret-operator/operator/annotations"
@@ -72,11 +73,17 @@ func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconci
 		}
 	}
 
+	// Remember the prior state so we only emit events on transitions, not every resync.
+	prevSynced := cps.Status.Synced
+	prevReason := cps.Status.Reason
+
 	// Obtain credentials using the shared helper (uncached reader for source secrets)
 	val, keyName, err := credentials.GetCredentialBytes(ctx, r.reader(), cps.Spec.Credentials)
 	if err != nil {
 		log.Printf("failed to get credentials for ClusterPullSecret %s: %v", cps.Name, err)
-		r.setStatus(ctx, cps, false, reasonForError(err))
+		reason := reasonForError(err)
+		r.setStatus(ctx, cps, false, reason)
+		r.recordStatusEvent(cps, prevSynced, prevReason, false, reason, err.Error(), nil)
 
 		// Permanent spec errors will not resolve until the resource changes (which
 		// re-triggers reconciliation), so avoid hot error-retry loops; just resync
@@ -133,13 +140,15 @@ func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconci
 	cps.Status.ObservedGeneration = cps.Generation
 	synced := true
 	reason := ""
+	var failedRegistries []string
 	if r.RegistryValidator != nil {
 		if r.registryCheckDue(cps.Status.RegistryAuth) {
-			statuses, authFailed := r.runRegistryValidation(ctx, cps.Name, val)
+			statuses, failed := r.runRegistryValidation(ctx, cps.Name, val)
 			cps.Status.RegistryAuth = statuses
-			if authFailed {
+			if len(failed) > 0 {
 				synced = false
 				reason = "registry-auth-failed"
+				failedRegistries = failed
 			}
 		} else if cps.Status.Reason == "registry-auth-failed" {
 			// Not due for a re-check yet; preserve the last registry verdict so the
@@ -149,6 +158,7 @@ func (r *ClusterPullSecretReconciler) Reconcile(ctx context.Context, req reconci
 		}
 	}
 	r.setStatus(ctx, cps, synced, reason)
+	r.recordStatusEvent(cps, prevSynced, prevReason, synced, reason, "", failedRegistries)
 
 	// Re-validate periodically (jittered to spread load) so the status/metrics catch
 	// out-of-band changes even without an event.
@@ -184,10 +194,10 @@ func (r *ClusterPullSecretReconciler) registryCheckDue(statuses []v1.RegistryAut
 
 // runRegistryValidation actively checks the credentials against each referenced registry
 // and returns the per-registry status plus whether any registry explicitly rejected them.
-func (r *ClusterPullSecretReconciler) runRegistryValidation(ctx context.Context, name string, dockerConfigJSON []byte) ([]v1.RegistryAuthStatus, bool) {
+func (r *ClusterPullSecretReconciler) runRegistryValidation(ctx context.Context, name string, dockerConfigJSON []byte) ([]v1.RegistryAuthStatus, []string) {
 	results := r.RegistryValidator.Validate(ctx, dockerConfigJSON)
 	now := metav1.Now()
-	authFailed := false
+	var failed []string
 	statuses := make([]v1.RegistryAuthStatus, 0, len(results))
 	for _, res := range results {
 		authed := res.State == registry.StateOK
@@ -201,11 +211,39 @@ func (r *ClusterPullSecretReconciler) runRegistryValidation(ctx context.Context,
 		case registry.StateOK:
 			setRegistryAuthMetric(name, res.Registry, true)
 		case registry.StateAuthFailed:
-			authFailed = true
+			failed = append(failed, res.Registry)
 			setRegistryAuthMetric(name, res.Registry, false)
 		}
 	}
-	return statuses, authFailed
+	return statuses, failed
+}
+
+// recordStatusEvent emits a Kubernetes Event only when the sync state transitions, so a
+// persistent failure (re-checked every resync) is reported once rather than repeatedly,
+// and recovery is announced exactly once.
+func (r *ClusterPullSecretReconciler) recordStatusEvent(cps *v1.ClusterPullSecret, prevSynced bool, prevReason string, synced bool, reason, detail string, failedRegistries []string) {
+	if synced {
+		if !prevSynced {
+			r.Recorder.Event(cps, "Normal", "Synced", "Credentials valid; managed secrets up to date")
+		}
+		return
+	}
+	if reason == prevReason {
+		return // already reported this failure
+	}
+	switch reason {
+	case "registry-auth-failed":
+		msg := "Registry rejected the credentials"
+		if len(failedRegistries) > 0 {
+			msg = "Registry rejected the credentials: " + strings.Join(failedRegistries, ", ")
+		}
+		r.Recorder.Event(cps, "Warning", "RegistryAuthFailed", msg)
+	default:
+		if detail == "" {
+			detail = reason
+		}
+		r.Recorder.Event(cps, "Warning", "CredentialError", detail)
+	}
 }
 
 // setStatus updates the ClusterPullSecret status and the synced metric in one place.

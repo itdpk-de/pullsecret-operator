@@ -285,6 +285,26 @@ It honors `HTTP(S)_PROXY` and can trust a private CA via `registryValidation.caB
 Scrape the metrics with the bundled `Service` (`metrics.service.enabled`, default on) or a
 `ServiceMonitor` (`serviceMonitor.enabled`, requires the Prometheus Operator).
 
+### Events
+
+The operator emits Kubernetes Events for traceability (`kubectl describe` / `kubectl get events`):
+
+On the **ClusterPullSecret**:
+- `Normal Updated` — a managed secret was updated
+- `Normal Synced` — credentials became valid again (on recovery)
+- `Warning CredentialError` — credentials could not be resolved (e.g. source secret/key missing, invalid `.dockerconfigjson`)
+- `Warning RegistryAuthFailed` — a registry rejected the credentials (lists the registries)
+
+On the **workload** (Deployment/StatefulSet/…):
+- `Normal Created` / `Normal Updated` — pull secret created/updated in the namespace
+- `Normal Deleted` / `Normal Released` — pull secret cleaned up / ownership released when the annotation is removed
+- `Warning CredentialError` / `Warning ClusterPullSecretNotFound` — the referenced ClusterPullSecret could not be used
+
+Failure events are emitted on state transitions (not every resync), so a persistent failure
+is reported once rather than repeatedly. Inconclusive "registry unreachable" results are
+intentionally not evented (to avoid flapping noise) — they remain visible in
+`status.registryAuth` and the metrics.
+
 ## Configuration
 
 Configuration options can be set via Helm values:
