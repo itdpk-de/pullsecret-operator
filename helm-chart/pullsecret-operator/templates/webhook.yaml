@@ -1,0 +1,116 @@
+{{- if .Values.webhook.enabled }}
+{{- $fullname := include "pullsecret-operator.fullname" . }}
+{{- $svc := printf "%s-webhook" $fullname }}
+{{- $ns := .Values.namespace }}
+{{- $secretName := printf "%s-webhook-cert" $fullname }}
+{{- $certName := printf "%s-webhook" $fullname }}
+{{- $altNames := list $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns) }}
+{{- $caCrt := "" }}
+{{- $tlsCrt := "" }}
+{{- $tlsKey := "" }}
+{{- if .Values.webhook.certManager.enabled }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ $fullname }}-selfsigned
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pullsecret-operator.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $certName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pullsecret-operator.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $secretName }}
+  dnsNames:
+    {{- range $altNames }}
+    - {{ . }}
+    {{- end }}
+  issuerRef:
+    name: {{ $fullname }}-selfsigned
+    kind: Issuer
+---
+{{- else }}
+{{- $existing := lookup "v1" "Secret" $ns $secretName }}
+{{- if and $existing $existing.data (hasKey $existing.data "ca.crt") }}
+{{- $caCrt = index $existing.data "ca.crt" }}
+{{- $tlsCrt = index $existing.data "tls.crt" }}
+{{- $tlsKey = index $existing.data "tls.key" }}
+{{- else }}
+{{- $ca := genCA (printf "%s-ca" $fullname) 3650 }}
+{{- $cert := genSignedCert $svc (list) $altNames 3650 $ca }}
+{{- $caCrt = b64enc $ca.Cert }}
+{{- $tlsCrt = b64enc $cert.Cert }}
+{{- $tlsKey = b64enc $cert.Key }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pullsecret-operator.labels" . | nindent 4 }}
+type: Opaque
+data:
+  tls.crt: {{ $tlsCrt }}
+  tls.key: {{ $tlsKey }}
+  ca.crt: {{ $caCrt }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pullsecret-operator.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "pullsecret-operator.selectorLabels" . | nindent 4 }}
+  ports:
+  - port: 443
+    targetPort: webhook
+    protocol: TCP
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ $fullname }}-pod-injector
+  labels:
+    {{- include "pullsecret-operator.labels" . | nindent 4 }}
+  {{- if .Values.webhook.certManager.enabled }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ $ns }}/{{ $certName }}
+  {{- end }}
+webhooks:
+- name: pods.pullsecret.pascal-kutscha.de
+  admissionReviewVersions: ["v1"]
+  sideEffects: None
+  failurePolicy: {{ .Values.webhook.failurePolicy }}
+  reinvocationPolicy: IfNeeded
+  clientConfig:
+    service:
+      name: {{ $svc }}
+      namespace: {{ $ns }}
+      path: /mutate-v1-pod
+      port: 443
+    {{- if not .Values.webhook.certManager.enabled }}
+    caBundle: {{ $caCrt }}
+    {{- end }}
+  rules:
+  - apiGroups: [""]
+    apiVersions: ["v1"]
+    operations: ["CREATE"]
+    resources: ["pods"]
+    scope: Namespaced
+  {{- with .Values.webhook.namespaceSelector }}
+  namespaceSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

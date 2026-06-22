@@ -43,6 +43,25 @@ The following table lists the configurable parameters of the chart and their def
 | `namespace` | Namespace for operator deployment | `pullsecret-operator-system` |
 | `installCRDs` | Install CRDs | `true` |
 | `leaderElection.enabled` | Enable leader election | `false` |
+| `metrics.port` | Prometheus metrics port | `8080` |
+| `metrics.service.enabled` | Create a Service for the metrics port | `true` |
+| `serviceMonitor.enabled` | Create a Prometheus Operator ServiceMonitor | `false` |
+| `serviceMonitor.interval` | Scrape interval | `30s` |
+| `serviceMonitor.labels` | Extra labels for the ServiceMonitor | `{}` |
+| `health.port` | Health/readiness probe port | `8081` |
+| `registryValidation.enabled` | Active registry-login validation | `true` |
+| `registryValidation.timeoutSeconds` | Per-request timeout | `10` |
+| `registryValidation.intervalSeconds` | How often to re-check registry logins | `1800` |
+| `registryValidation.caBundle.configMapName` | ConfigMap with a CA bundle for private registries | `""` |
+| `registryValidation.caBundle.key` | Key in that ConfigMap | `ca.crt` |
+| `webhook.enabled` | Enable the Pod imagePullSecrets injection webhook | `false` |
+| `webhook.port` | Webhook server port | `9443` |
+| `webhook.failurePolicy` | Webhook failure policy (`Ignore`/`Fail`) | `Ignore` |
+| `webhook.certManager.enabled` | Use cert-manager for the serving cert (GitOps-friendly) | `false` |
+| `webhook.namespaceSelector` | Limit which namespaces the webhook acts on | excludes `kube-system`/`kube-node-lease` |
+| `podDisruptionBudget.enabled` | Create a PodDisruptionBudget | `false` |
+| `podDisruptionBudget.minAvailable` | PDB minAvailable | `1` |
+| `affinity` | Pod affinity (defaults to soft anti-affinity) | soft anti-affinity |
 
 ## Usage
 

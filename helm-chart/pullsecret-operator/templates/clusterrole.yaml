@@ -37,11 +37,23 @@ rules:
       - update
       - patch
       - delete
-  # Deployment permissions
+  # Workload permissions (kinds that can reference imagePullSecrets)
   - apiGroups:
       - apps
     resources:
       - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+      - cronjobs
     verbs:
       - get
       - list

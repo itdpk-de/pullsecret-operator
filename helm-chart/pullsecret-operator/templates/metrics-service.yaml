@@ -1,0 +1,17 @@
+{{- if .Values.metrics.service.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pullsecret-operator.fullname" . }}-metrics
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "pullsecret-operator.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "pullsecret-operator.selectorLabels" . | nindent 4 }}
+  ports:
+  - name: metrics
+    port: {{ .Values.metrics.port }}
+    targetPort: metrics
+    protocol: TCP
+{{- end }}

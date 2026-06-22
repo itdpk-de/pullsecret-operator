@@ -4,10 +4,11 @@ A Kubernetes operator that manages cluster-wide pull secrets across namespaces a
 
 ## Features
 
-- **Cluster-wide Pull Secret Management**: Define pull secrets once at the cluster level and have them automatically synced to all namespaces
-- **Deployment Annotation Support**: Automatically create pull secrets for Deployments with specific annotations
-- **Multiple Credential Sources**: Support for both encrypted credentials and secret references
-- **Event-driven**: Watches for changes and automatically reconciles secrets
+- **Cluster-wide Pull Secret Management**: Define a pull secret once at the cluster level (`ClusterPullSecret`) and have it materialized into a namespace on demand via Deployment annotations
+- **Deployment Annotation Support**: Automatically create pull secrets for Deployments carrying the `cluster-pull-secrets` annotation
+- **Multiple Credential Sources**: `secretRef`, `registryCredentials` (individual fields), or `encryptedData` (base64-encoded `.dockerconfigjson`)
+- **Event-driven with periodic re-validation**: Watches ClusterPullSecrets and the secrets it manages, and re-validates every few minutes so credential rotation in the source secret propagates
+- **Monitoring-friendly status**: `status.phase` (`Synced`/`OutOfSync`) plus a Prometheus gauge `pullsecret_operator_clusterpullsecret_synced`
 - **RBAC Compliant**: Minimal required permissions following security best practices
 
 ## Quick Start
@@ -74,7 +75,15 @@ spec:
 See [examples/clusterpullsecret-registrycredentials.yaml](examples/clusterpullsecret-registrycredentials.yaml)
 for a full walkthrough.
 
-Using encrypted data:
+Using inline `dockerConfigJson` (raw JSON **or** base64-encoded — both accepted):
+
+> **Note:** Inline credentials are **not** encrypted and provide no confidentiality
+> (anyone with `get clusterpullsecrets` can read them). For real encryption-at-rest,
+> prefer `secretRef`/`registryCredentials` and protect the referenced Secret with SOPS,
+> Sealed Secrets, or a secrets manager.
+>
+> The legacy field `encryptedData` is a **deprecated** alias for `dockerConfigJson`
+> (treated identically, never decrypted). Use `dockerConfigJson`.
 
 ```yaml
 apiVersion: pullsecret.pascal-kutscha.de/v1
@@ -83,7 +92,8 @@ metadata:
   name: my-registry
 spec:
   credentials:
-    encryptedData: <base64-encoded-encrypted-credentials>
+    # raw .dockerconfigjson or base64 of it
+    dockerConfigJson: <.dockerconfigjson-or-base64>
 ```
 
 Apply the resource:
@@ -92,9 +102,11 @@ Apply the resource:
 kubectl apply -f clusterpullsecret.yaml
 ```
 
-#### Annotate a Deployment
+#### Annotate a workload
 
-Add the annotation to your Deployment to automatically get pull secrets:
+Add the annotation to a workload to automatically get its pull secret. Supported
+kinds: **Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob**. Multiple
+ClusterPullSecrets can be listed comma-separated.
 
 ```yaml
 apiVersion: apps/v1
@@ -102,12 +114,40 @@ kind: Deployment
 metadata:
   name: my-app
   annotations:
-    pullsecret.pascal-kutscha.de/cluster-pull-secrets: "my-registry"
+    pullsecret.pascal-kutscha.de/cluster-pull-secrets: "my-registry,other-registry"
 spec:
-  # ... deployment spec
+  # ... workload spec
 ```
 
-The operator will automatically create a secret named `pullsecret-my-registry` in the same namespace as the Deployment.
+The operator creates a secret named `pullsecret-<clusterpullsecret-name>` in the
+workload's namespace. Reference it via `imagePullSecrets`. When the annotation is
+removed, the secret is cleaned up (owner-reference based).
+
+#### Optional: automatic injection via mutating webhook
+
+Instead of referencing `imagePullSecrets` manually, you can enable a mutating webhook
+that injects them into **Pods** at admission, based on the annotation on the Pod or its
+owning workload:
+
+```bash
+helm upgrade --install pullsecret-operator ./helm-chart/pullsecret-operator \
+  --set webhook.enabled=true
+```
+
+Because it mutates the **Pod** and not the Deployment/CR, the change is invisible to
+GitOps controllers (Argo CD / Flux) and does **not** cause reconciliation loops or
+endless rollouts. The default `failurePolicy: Ignore` means Pod creation is never blocked
+if the operator is unavailable, and the webhook ignores `kube-system`/`kube-node-lease` by
+default (`webhook.namespaceSelector`).
+
+> **GitOps + certificate:** by default the chart generates a self-signed serving cert and
+> reuses it via Helm `lookup`. Tools that render with `helm template` (Argo CD/Flux) have
+> no cluster `lookup`, so the cert/`caBundle` would regenerate on every sync. For those,
+> set `webhook.certManager.enabled=true` to manage the cert via **cert-manager** (CA is
+> injected into the webhook config), which is fully GitOps-stable.
+
+For HA, run multiple replicas with `leaderElection.enabled=true` and
+`podDisruptionBudget.enabled=true` (replicas spread via the default soft anti-affinity).
 
 ## Docker Image
 
@@ -203,8 +243,67 @@ See the [Helm chart README](helm-chart/pullsecret-operator/README.md) for detail
 
 The operator consists of two main controllers:
 
-1. **ClusterPullSecretReconciler**: Manages cluster-wide pull secrets and syncs them to all secrets with the managed annotation
-2. **DeploymentReconciler**: Watches Deployments with the annotation and creates/updates pull secrets in their namespaces
+1. **ClusterPullSecretReconciler**: Resolves and validates the credentials for each `ClusterPullSecret`, keeps every secret it manages (those carrying the managed-by annotation) up to date, and re-validates periodically (so source-secret rotation propagates within the resync interval), reporting `status.phase`/metrics. It only caches the secrets it manages — source secrets are read uncached — and does **not** blanket-create secrets in every namespace.
+2. **DeploymentReconciler**: Watches Deployments with the annotation, creates/updates the `pullsecret-<name>` secret in their namespace, and cleans it up when the annotation is removed (owner-reference based).
+
+## Monitoring & credential validation
+
+Each `ClusterPullSecret` reports a status you can scrape and alert on:
+
+```bash
+kubectl get clusterpullsecrets
+# NAME          PHASE       SYNCED   REASON                  LAST-SYNC   AGE
+# my-registry   Synced      true                             30s         5m
+# broken        OutOfSync   false    source-secret-not-found              5m
+```
+
+Prometheus metrics (served on the metrics port, default `:8080`):
+
+- `pullsecret_operator_clusterpullsecret_synced{clusterpullsecret}` — `1` synced, `0` out of sync
+- `pullsecret_operator_registry_auth_ok{clusterpullsecret,registry}` — `1` registry accepted the credentials, `0` rejected them
+
+Example alerts:
+
+```promql
+pullsecret_operator_clusterpullsecret_synced == 0
+pullsecret_operator_registry_auth_ok == 0
+```
+
+**Validation depth:** the operator always validates structurally (source secret exists,
+fields present, content is valid `.dockerconfigjson`) and, by default, **actively logs in**
+to each referenced registry to catch expired/wrong credentials. The active check needs
+network egress from the operator; disable it with `registryValidation.enabled: false`
+(blocked egress is treated as "inconclusive", not a failure). Structural validation
+re-runs on every change and every ~5 minutes; the active registry login is throttled to
+`registryValidation.intervalSeconds` (default 30 minutes) to avoid registry rate limits.
+It honors `HTTP(S)_PROXY` and can trust a private CA via `registryValidation.caBundle`.
+
+> The active check is best-effort: registries that issue anonymous tokens even for invalid
+> credentials may report `OK`. Treat `registry_auth_ok == 0` as a reliable failure signal,
+> and `1` as "not definitively broken".
+
+Scrape the metrics with the bundled `Service` (`metrics.service.enabled`, default on) or a
+`ServiceMonitor` (`serviceMonitor.enabled`, requires the Prometheus Operator).
+
+### Events
+
+The operator emits Kubernetes Events for traceability (`kubectl describe` / `kubectl get events`):
+
+On the **ClusterPullSecret**:
+- `Normal Updated` — a managed secret was updated
+- `Normal Synced` — credentials became valid again (on recovery)
+- `Warning CredentialError` — credentials could not be resolved (e.g. source secret/key missing, invalid `.dockerconfigjson`)
+- `Warning RegistryAuthFailed` — a registry rejected the credentials (lists the registries)
+
+On the **workload** (Deployment/StatefulSet/…):
+- `Normal Created` / `Normal Updated` — pull secret created/updated in the namespace
+- `Normal Deleted` / `Normal Released` — pull secret cleaned up / ownership released when the annotation is removed
+- `Warning CredentialError` / `Warning ClusterPullSecretNotFound` — the referenced ClusterPullSecret could not be used
+
+Failure events are emitted on state transitions (not every resync), so a persistent failure
+is reported once rather than repeatedly. Inconclusive "registry unreachable" results are
+intentionally not evented (to avoid flapping noise) — they remain visible in
+`status.registryAuth` and the metrics.
 
 ## Configuration
 

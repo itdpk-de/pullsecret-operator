@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: Install envtest binaries
+        run: |
+          go install sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.21
+          echo "KUBEBUILDER_ASSETS=$(setup-envtest use -p path 1.31.0)" >> "$GITHUB_ENV"
+
+      - name: go test (unit + envtest integration)
+        run: go test -race ./...
+
+      - name: Check generated CRDs/deepcopy are up to date
+        run: |
+          make manifests generate
+          if ! git diff --exit-code; then
+            echo "::error::Generated files are out of date. Run 'make manifests generate' and commit the result."
+            exit 1
+          fi
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: helm lint
+        run: helm lint helm-chart/pullsecret-operator
+
+      - name: helm template (default + webhook enabled)
+        run: |
+          helm template t helm-chart/pullsecret-operator > /dev/null
+          helm template t helm-chart/pullsecret-operator \
+            --set webhook.enabled=true \
+            --set serviceMonitor.enabled=true > /dev/null

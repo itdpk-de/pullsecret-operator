@@ -19,7 +19,23 @@ spec:
     singular: clusterpullsecret
   scope: Cluster
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.synced
+      name: Synced
+      type: boolean
+    - jsonPath: .status.reason
+      name: Reason
+      type: string
+    - jsonPath: .status.lastSyncTime
+      name: Last-Sync
+      type: date
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: ClusterPullSecret is the Schema for the clusterpullsecrets API.
@@ -49,11 +65,19 @@ spec:
                   Credentials defines secure access to the registry or container registries.
                   It may reference an existing Secret (secretRef) or contain encrypted credential data.
                 properties:
+                  dockerConfigJson:
+                    description: |-
+                      DockerConfigJson holds inline .dockerconfigjson content, either as raw JSON or
+                      base64-encoded JSON (the operator accepts both). This value is NOT encrypted and is
+                      readable by anyone who can read the ClusterPullSecret; for sensitive credentials use
+                      secretRef or registryCredentials and protect the referenced Secret at rest.
+                    type: string
                   encryptedData:
                     description: |-
-                      EncryptedData contains the credentials encrypted and base64-encoded.
-                      The decrypted value must be the raw .dockerconfigjson content.
-                      Recommended: encrypt with KMS or SOPS and store base64(encoded(ciphertext)).
+                      EncryptedData is a deprecated alias for dockerConfigJson and is treated identically
+                      (it is NOT decrypted). Use dockerConfigJson instead.
+
+                      Deprecated: use dockerConfigJson.
                     type: string
                   registryCredentials:
                     description: |-
@@ -95,13 +119,15 @@ spec:
                     - secretName
                     type: object
                   secretRef:
-                    description: SecretRef points to a Secret containing the credential
-                      material (backwards compatible).
+                    description: |-
+                      SecretRef points to a Secret whose referenced key already contains valid
+                      .dockerconfigjson content. The value is copied verbatim into the generated Secret.
                     properties:
                       key:
                         description: |-
-                          Key is the key within the Secret data.
-                          Example: token, password, .dockerconfigjson
+                          Key is the key within the Secret data whose value is valid .dockerconfigjson
+                          content (commonly ".dockerconfigjson"). The value is copied verbatim, so it must
+                          be a serialized ~/.docker/config.json, not a bare token or password.
                         minLength: 1
                         type: string
                       name:
@@ -118,6 +144,11 @@ spec:
                     - namespace
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: exactly one of secretRef, dockerConfigJson, registryCredentials
+                    or encryptedData must be set
+                  rule: '[has(self.secretRef), has(self.dockerConfigJson), has(self.registryCredentials),
+                    has(self.encryptedData)].filter(x, x).size() == 1'
             required:
             - credentials
             type: object
@@ -129,15 +160,56 @@ spec:
                   reconciled.
                 format: date-time
                 type: string
+              lastValidationTime:
+                description: |-
+                  LastValidationTime is the last time the credentials were validated, regardless
+                  of outcome. Useful to detect a stalled controller.
+                format: date-time
+                type: string
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
                   by the controller.
                 format: int64
                 type: integer
+              phase:
+                description: Phase is a coarse, human-readable summary of the sync
+                  state (Synced/OutOfSync).
+                type: string
               reason:
                 description: Reason provides a human-readable explanation when the
                   secret is not synced.
                 type: string
+              registryAuth:
+                description: |-
+                  RegistryAuth reports the result of the active login check against each registry
+                  referenced by the credentials. Populated only when registry validation is enabled.
+                items:
+                  description: RegistryAuthStatus reports whether a specific registry
+                    accepted the credentials.
+                  properties:
+                    authenticated:
+                      description: |-
+                        Authenticated is true if the registry accepted the credentials. A false value
+                        with a reason of an explicit rejection (HTTP 401/403) indicates expired or wrong
+                        credentials; an "unreachable" reason means the check was inconclusive.
+                      type: boolean
+                    lastCheckTime:
+                      description: LastCheckTime is when this registry was last checked.
+                      format: date-time
+                      type: string
+                    reason:
+                      description: Reason explains the outcome (empty on success).
+                      type: string
+                    registry:
+                      description: Registry is the registry server the credentials
+                        were tested against.
+                      type: string
+                  required:
+                  - authenticated
+                  - registry
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               synced:
                 description: Synced indicates whether the pull secret is currently
                   valid and usable.
