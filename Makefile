@@ -54,3 +54,9 @@ docker-push:
 .PHONY: build-push
 build-push:
 	docker buildx build --push -t $(IMAGE_NAME) .
+
+# End-to-end test on a real (kind) cluster: build+load image, install the chart with
+# the webhook enabled, and verify secret creation, webhook injection, status and cleanup.
+.PHONY: test-e2e
+test-e2e:
+	./test/e2e/e2e.sh

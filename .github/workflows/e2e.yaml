@@ -1,0 +1,38 @@
+name: E2E
+
+# Reusable end-to-end test on a real kind cluster. Runs on demand (and weekly) rather
+# than on every PR, since it builds an image and spins up a cluster (a few minutes).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: pullsecret-e2e
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run E2E
+        env:
+          USE_EXISTING_CLUSTER: "1" # kind-action already created the cluster
+        run: |
+          # kind-action created the cluster; build & load the image, then run the suite.
+          docker build -t pullsecret-operator:e2e .
+          kind load docker-image pullsecret-operator:e2e --name pullsecret-e2e
+          ./test/e2e/e2e.sh
