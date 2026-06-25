@@ -9,8 +9,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/pascalku/pullsecret-operator/operator/annotations"
-	"github.com/pascalku/pullsecret-operator/operator/credentials"
+	"github.com/itdpk-de/pullsecret-operator/operator/annotations"
+	"github.com/itdpk-de/pullsecret-operator/operator/credentials"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"

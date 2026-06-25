@@ -16,7 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
-const annKey = "pullsecret.pascal-kutscha.de/cluster-pull-secrets"
+const annKey = "pullsecret.itdpk.de/cluster-pull-secrets"
 
 func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()

@@ -1,7 +1,7 @@
 {{- if .Values.webhook.enabled }}
 {{- $fullname := include "pullsecret-operator.fullname" . }}
 {{- $svc := printf "%s-webhook" $fullname }}
-{{- $ns := .Values.namespace }}
+{{- $ns := .Release.Namespace }}
 {{- $secretName := printf "%s-webhook-cert" $fullname }}
 {{- $certName := printf "%s-webhook" $fullname }}
 {{- $altNames := list $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns) }}
@@ -89,7 +89,7 @@ metadata:
     cert-manager.io/inject-ca-from: {{ $ns }}/{{ $certName }}
   {{- end }}
 webhooks:
-- name: pods.pullsecret.pascal-kutscha.de
+- name: pods.pullsecret.itdpk.de
   admissionReviewVersions: ["v1"]
   sideEffects: None
   failurePolicy: {{ .Values.webhook.failurePolicy }}

@@ -1,6 +1,6 @@
-// Package v1alpha1 contains API Schema definitions for the access v1alpha1 API group
+// Package v1 contains the API Schema definitions for the pullsecret.itdpk.de v1 API group.
 // +kubebuilder:object:generate=true
-// +groupName=pullsecret.pascal-kutscha.de
+// +groupName=pullsecret.itdpk.de
 package v1
 
 import (
@@ -10,7 +10,7 @@ import (
 
 var (
 	// GroupVersion is group version used to register these objects
-	GroupVersion = schema.GroupVersion{Group: "pullsecret.pascal-kutscha.de", Version: "v1"}
+	GroupVersion = schema.GroupVersion{Group: "pullsecret.itdpk.de", Version: "v1"}
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
 	SchemeBuilder = &scheme.Builder{GroupVersion: GroupVersion}

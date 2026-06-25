@@ -8,19 +8,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pascalku/pullsecret-operator/operator/annotations"
-	"github.com/pascalku/pullsecret-operator/operator/credentials"
-	"github.com/pascalku/pullsecret-operator/operator/registry"
-	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
+	"github.com/itdpk-de/pullsecret-operator/operator/annotations"
+	"github.com/itdpk-de/pullsecret-operator/operator/credentials"
+	"github.com/itdpk-de/pullsecret-operator/operator/registry"
+	v1 "github.com/itdpk-de/pullsecret-operator/pkg/apis/pullsecret.itdpk.de/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -38,7 +41,7 @@ type ClusterPullSecretReconciler struct {
 	RegistryCheckInterval time.Duration
 }
 
-const clusterFinalizer = "pullsecret.pascal-kutscha.de/finalizer"
+const clusterFinalizer = "pullsecret.itdpk.de/finalizer"
 
 // resyncInterval is how often credentials are re-validated even without a triggering
 // event, so the status and metrics reflect e.g. a deleted source secret promptly.
@@ -349,9 +352,28 @@ func (r *ClusterPullSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		r.APIReader = mgr.GetAPIReader()
 	}
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1.ClusterPullSecret{}).
+		// Ignore our own status writes (they happen every reconcile and would otherwise
+		// re-trigger this controller in a hot loop). Spec changes, deletion and the
+		// periodic resync still drive reconciliation.
+		For(&v1.ClusterPullSecret{}, builder.WithPredicates(specOrDeletionChanged())).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.secretToClusterPullSecrets)).
 		Complete(r)
+}
+
+// specOrDeletionChanged reconciles on create/delete, on spec (generation) changes and when
+// the deletion timestamp is set (finalizer handling), but ignores status-only updates.
+func specOrDeletionChanged() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return true
+			}
+			if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
+				return true
+			}
+			return !e.ObjectOld.GetDeletionTimestamp().Equal(e.ObjectNew.GetDeletionTimestamp())
+		},
+	}
 }
 
 // secretToClusterPullSecrets maps a managed Secret event to its owning ClusterPullSecret

@@ -6,9 +6,9 @@ import (
 	"errors"
 	"log"
 
-	"github.com/pascalku/pullsecret-operator/operator/annotations"
-	"github.com/pascalku/pullsecret-operator/operator/credentials"
-	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
+	"github.com/itdpk-de/pullsecret-operator/operator/annotations"
+	"github.com/itdpk-de/pullsecret-operator/operator/credentials"
+	v1 "github.com/itdpk-de/pullsecret-operator/pkg/apis/pullsecret.itdpk.de/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -233,7 +233,9 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name).
-		For(r.New()).
+		// Only react to annotation changes (plus create/delete); image/scale/status churn
+		// on the workload does not affect its pull secrets.
+		For(r.New(), builder.WithPredicates(predicate.AnnotationChangedPredicate{})).
 		// Recreate/refresh managed secrets if they are deleted or edited out-of-band.
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.secretToWorkload)).
 		// Reconcile workloads when a referenced ClusterPullSecret is (re)created or its

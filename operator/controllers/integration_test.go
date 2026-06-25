@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pascalku/pullsecret-operator/operator/annotations"
-	"github.com/pascalku/pullsecret-operator/operator/credentials"
-	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
+	"github.com/itdpk-de/pullsecret-operator/operator/annotations"
+	"github.com/itdpk-de/pullsecret-operator/operator/credentials"
+	v1 "github.com/itdpk-de/pullsecret-operator/pkg/apis/pullsecret.itdpk.de/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
