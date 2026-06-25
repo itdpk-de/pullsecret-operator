@@ -72,9 +72,6 @@ spec:
       emailKey: email
 ```
 
-See [examples/clusterpullsecret-registrycredentials.yaml](examples/clusterpullsecret-registrycredentials.yaml)
-for a full walkthrough.
-
 Using inline `dockerConfigJson` (raw JSON **or** base64-encoded — both accepted):
 
 > **Note:** Inline credentials are **not** encrypted and provide no confidentiality
