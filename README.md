@@ -149,6 +149,10 @@ default (`webhook.namespaceSelector`).
 
 For HA, run multiple replicas with `leaderElection.enabled=true` and
 `podDisruptionBudget.enabled=true` (replicas spread via the default soft anti-affinity).
+Only the elected leader runs the controllers; the webhook, metrics and health endpoints
+serve on every replica. The leader-election Lease lives in the operator's own namespace by
+default (override with `leaderElection.namespace`), and the leader releases it on graceful
+shutdown so a standby takes over immediately instead of waiting for the lease to expire.
 
 ## Docker Image
 

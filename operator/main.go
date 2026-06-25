@@ -46,7 +46,8 @@ func main() {
 	log.Println("Starting ClusterPullSecret operator...")
 
 	enableLeaderElection := os.Getenv("ENABLE_LEADER_ELECTION") == "true"
-	leaderElectionNamespace := getEnvDefault("LEADER_ELECTION_NAMESPACE", "kube-system")
+	// Empty => controller-runtime auto-detects the operator's own namespace in-cluster.
+	leaderElectionNamespace := os.Getenv("LEADER_ELECTION_NAMESPACE")
 	metricsAddr := getEnvDefault("METRICS_BIND_ADDRESS", ":8080")
 	healthAddr := getEnvDefault("HEALTH_PROBE_BIND_ADDRESS", ":8081")
 	webhookEnabled := os.Getenv("WEBHOOK_ENABLED") == "true"
@@ -55,6 +56,9 @@ func main() {
 		LeaderElection:          enableLeaderElection,
 		LeaderElectionID:        "kube-leader-pullsecret.itdpk.de",
 		LeaderElectionNamespace: leaderElectionNamespace,
+		// Release the lease on graceful shutdown so a standby takes over immediately
+		// instead of waiting for the lease to expire.
+		LeaderElectionReleaseOnCancel: true,
 		Metrics: metricsserver.Options{
 			BindAddress: metricsAddr,
 		},
