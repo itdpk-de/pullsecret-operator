@@ -128,10 +128,11 @@ serviceMonitor:
 health:
   port: 8081
 
-# Leader election configuration
+# Leader election (enable together with replicaCount > 1 and podDisruptionBudget for HA).
 leaderElection:
   enabled: false
-  namespace: kube-system
+  # Namespace for the leader-election Lease. Empty = the operator's own namespace.
+  namespace: ""
 
 # The operator is deployed into the Helm release namespace (-n / --create-namespace).
 

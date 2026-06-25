@@ -70,8 +70,10 @@ spec:
         {{- if .Values.leaderElection.enabled }}
         - name: ENABLE_LEADER_ELECTION
           value: "true"
+        {{- with .Values.leaderElection.namespace }}
         - name: LEADER_ELECTION_NAMESPACE
-          value: {{ .Values.leaderElection.namespace }}
+          value: {{ . }}
+        {{- end }}
         {{- end }}
         livenessProbe:
           httpGet:
