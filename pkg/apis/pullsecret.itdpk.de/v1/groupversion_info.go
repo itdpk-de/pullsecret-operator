@@ -1,4 +1,4 @@
-// Package v1alpha1 contains API Schema definitions for the access v1alpha1 API group
+// Package v1 contains the API Schema definitions for the pullsecret.itdpk.de v1 API group.
 // +kubebuilder:object:generate=true
 // +groupName=pullsecret.itdpk.de
 package v1
