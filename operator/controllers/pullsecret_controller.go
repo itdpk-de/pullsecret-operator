@@ -18,9 +18,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -349,9 +352,28 @@ func (r *ClusterPullSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		r.APIReader = mgr.GetAPIReader()
 	}
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1.ClusterPullSecret{}).
+		// Ignore our own status writes (they happen every reconcile and would otherwise
+		// re-trigger this controller in a hot loop). Spec changes, deletion and the
+		// periodic resync still drive reconciliation.
+		For(&v1.ClusterPullSecret{}, builder.WithPredicates(specOrDeletionChanged())).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.secretToClusterPullSecrets)).
 		Complete(r)
+}
+
+// specOrDeletionChanged reconciles on create/delete, on spec (generation) changes and when
+// the deletion timestamp is set (finalizer handling), but ignores status-only updates.
+func specOrDeletionChanged() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			if e.ObjectOld == nil || e.ObjectNew == nil {
+				return true
+			}
+			if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
+				return true
+			}
+			return !e.ObjectOld.GetDeletionTimestamp().Equal(e.ObjectNew.GetDeletionTimestamp())
+		},
+	}
 }
 
 // secretToClusterPullSecrets maps a managed Secret event to its owning ClusterPullSecret

@@ -45,8 +45,7 @@ The following table lists the configurable parameters of the chart and their def
 | `resources.limits.memory` | Memory limit | `256Mi` |
 | `resources.requests.cpu` | CPU request | `100m` |
 | `resources.requests.memory` | Memory request | `128Mi` |
-| `namespace` | Namespace for operator deployment | `pullsecret-operator-system` |
-| `installCRDs` | Install CRDs | `true` |
+| `installCRDs` | Install the CRD with the chart | `true` |
 | `leaderElection.enabled` | Enable leader election | `false` |
 | `metrics.port` | Prometheus metrics port | `8080` |
 | `metrics.service.enabled` | Create a Service for the metrics port | `true` |

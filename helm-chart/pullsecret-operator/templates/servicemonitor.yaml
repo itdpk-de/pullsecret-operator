@@ -3,7 +3,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "pullsecret-operator.fullname" . }}
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
   labels:
     {{- include "pullsecret-operator.labels" . | nindent 4 }}
     {{- with .Values.serviceMonitor.labels }}
@@ -15,7 +15,7 @@ spec:
       {{- include "pullsecret-operator.selectorLabels" . | nindent 6 }}
   namespaceSelector:
     matchNames:
-    - {{ .Values.namespace }}
+    - {{ .Release.Namespace }}
   endpoints:
   - port: metrics
     path: /metrics

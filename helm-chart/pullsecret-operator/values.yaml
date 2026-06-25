@@ -29,6 +29,8 @@ podSecurityContext:
   runAsNonRoot: true
   runAsUser: 65532
   fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
 
 securityContext:
   allowPrivilegeEscalation: false
@@ -131,8 +133,7 @@ leaderElection:
   enabled: false
   namespace: kube-system
 
-# Namespace where the operator is deployed
-namespace: pullsecret-operator-system
+# The operator is deployed into the Helm release namespace (-n / --create-namespace).
 
 # Install CRDs as part of the chart
 installCRDs: true

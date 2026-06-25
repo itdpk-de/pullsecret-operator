@@ -233,7 +233,9 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(r.Name).
-		For(r.New()).
+		// Only react to annotation changes (plus create/delete); image/scale/status churn
+		// on the workload does not affect its pull secrets.
+		For(r.New(), builder.WithPredicates(predicate.AnnotationChangedPredicate{})).
 		// Recreate/refresh managed secrets if they are deleted or edited out-of-band.
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.secretToWorkload)).
 		// Reconcile workloads when a referenced ClusterPullSecret is (re)created or its
