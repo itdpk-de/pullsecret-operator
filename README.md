@@ -4,20 +4,24 @@ A Kubernetes operator that manages cluster-wide pull secrets across namespaces a
 
 ## Features
 
-- **Cluster-wide Pull Secret Management**: Define a pull secret once at the cluster level (`ClusterPullSecret`) and have it materialized into a namespace on demand via Deployment annotations
-- **Deployment Annotation Support**: Automatically create pull secrets for Deployments carrying the `cluster-pull-secrets` annotation
-- **Multiple Credential Sources**: `secretRef`, `registryCredentials` (individual fields), or `encryptedData` (base64-encoded `.dockerconfigjson`)
-- **Event-driven with periodic re-validation**: Watches ClusterPullSecrets and the secrets it manages, and re-validates every few minutes so credential rotation in the source secret propagates
-- **Monitoring-friendly status**: `status.phase` (`Synced`/`OutOfSync`) plus a Prometheus gauge `pullsecret_operator_clusterpullsecret_synced`
-- **RBAC Compliant**: Minimal required permissions following security best practices
+- **Cluster-wide pull secret management**: Define a pull secret once at the cluster level (`ClusterPullSecret`) and have it materialized into a namespace on demand
+- **Works with all built-in workloads**: Deployment, StatefulSet, DaemonSet, ReplicaSet, Job and CronJob carrying the `cluster-pull-secrets` annotation
+- **Multiple credential sources**: `secretRef`, `registryCredentials` (individual fields), or inline `dockerConfigJson`
+- **Active credential validation**: structural checks plus an optional registry login to catch expired/wrong credentials
+- **Monitoring-friendly**: `status.phase` (`Synced`/`OutOfSync`), Kubernetes Events, and Prometheus metrics
+- **Optional mutating webhook**: injects `imagePullSecrets` into Pods (GitOps-safe — no reconciliation loops)
+- **RBAC compliant**: minimal required permissions
 
 ## Quick Start
 
 ### Prerequisites
 
-- Kubernetes cluster (1.19+)
+- Kubernetes cluster 1.25+ (the CRD uses CEL validation; on older clusters the
+  runtime checks still apply but the CRD-level `oneOf` is not enforced)
 - Helm 3.0+
 - kubectl configured to access your cluster
+- Optional: [cert-manager](https://cert-manager.io) if you enable the webhook with
+  `webhook.certManager.enabled=true`
 
 ### Installation
 
@@ -217,12 +221,10 @@ make generate
 
 ## CI/CD
 
-The project includes a GitHub Actions workflow (`.github/workflows/docker-build-push.yaml`) that:
+Two GitHub Actions workflows run on push and pull requests:
 
-1. Builds the Docker image on every push to main/master
-2. Pushes the image to GitHub Container Registry
-3. Supports multi-architecture builds (linux/amd64, linux/arm64)
-4. Creates appropriate tags based on branches and releases
+- **`.github/workflows/ci.yaml`** — `go vet`/`build`/`test` (incl. envtest integration tests), a CRD/deepcopy drift check, and `helm lint`/`helm template`.
+- **`.github/workflows/docker-build-push.yaml`** — builds the image (`linux/amd64`) and pushes it to GHCR on pushes to the default branch and on tags, with tags derived from the branch/semver/SHA.
 
 ## Helm Chart
 
@@ -238,10 +240,11 @@ See the [Helm chart README](helm-chart/pullsecret-operator/README.md) for detail
 
 ## Architecture
 
-The operator consists of two main controllers:
+The operator consists of:
 
-1. **ClusterPullSecretReconciler**: Resolves and validates the credentials for each `ClusterPullSecret`, keeps every secret it manages (those carrying the managed-by annotation) up to date, and re-validates periodically (so source-secret rotation propagates within the resync interval), reporting `status.phase`/metrics. It only caches the secrets it manages — source secrets are read uncached — and does **not** blanket-create secrets in every namespace.
-2. **DeploymentReconciler**: Watches Deployments with the annotation, creates/updates the `pullsecret-<name>` secret in their namespace, and cleans it up when the annotation is removed (owner-reference based).
+1. **ClusterPullSecretReconciler**: Resolves and validates the credentials for each `ClusterPullSecret`, keeps every secret it manages (those carrying the managed-by annotation) up to date, and re-validates periodically (so source-secret rotation propagates within the resync interval), reporting `status.phase`/metrics/events. It only caches the secrets it manages — source secrets are read uncached — and does **not** blanket-create secrets in every namespace.
+2. **WorkloadReconciler** (one per kind: Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob): Watches annotated workloads, creates/updates the `pullsecret-<name>` secret in their namespace, recreates it if deleted out-of-band, and cleans it up when the annotation is removed (owner-reference based).
+3. **Pod mutating webhook** (optional): injects `imagePullSecrets` into Pods based on the annotation on the Pod or its owning workload.
 
 ## Monitoring & credential validation
 
@@ -327,15 +330,19 @@ resources:
 
 ## Contributing
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on:
-- Making changes to the API
-- Regenerating CRDs and generated code
-- Testing your changes
-- Kubebuilder markers reference
+When changing the API types in `pkg/apis/pullsecret.itdpk.de/v1/`, always regenerate
+the generated code and CRDs and run the tests:
+
+```bash
+make generate manifests   # DeepCopy methods + CRD
+go test ./...             # set KUBEBUILDER_ASSETS (envtest) for the integration tests
+```
+
+The CI enforces a CRD/deepcopy drift check, so commit the regenerated files.
 
 ## License
 
-See LICENSE file for details.
+© itdpk.de. A license file will be added before public release.
 
 ## Support
 

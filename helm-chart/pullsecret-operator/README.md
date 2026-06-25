@@ -4,15 +4,20 @@ This Helm chart deploys the PullSecret Operator, which manages cluster-wide pull
 
 ## Features
 
-- Automatically syncs pull secrets to namespaces based on `ClusterPullSecret` custom resources
-- Watches Deployments with specific annotations to create pull secrets on-demand
-- Supports both encrypted credentials and secret references
+- Materializes `ClusterPullSecret` credentials into the namespaces of annotated workloads
+  (Deployment, StatefulSet, DaemonSet, ReplicaSet, Job, CronJob)
+- Credential sources: `secretRef`, `registryCredentials` (individual fields), inline `dockerConfigJson`
+- Active credential validation with `status.phase`, Kubernetes Events and Prometheus metrics
+- Optional Pod mutating webhook to inject `imagePullSecrets` (GitOps-safe)
 - RBAC-compliant with minimal required permissions
 
 ## Prerequisites
 
-- Kubernetes 1.19+
+- Kubernetes 1.25+ (the CRD uses CEL validation)
 - Helm 3.0+
+- Optional: cert-manager (only if `webhook.certManager.enabled=true`)
+
+> See the [main README](../../README.md) for usage, monitoring, events, the webhook and HA details.
 
 ## Installing the Chart
 
@@ -80,7 +85,7 @@ spec:
       key: .dockerconfigjson
 ```
 
-Or use encrypted credentials:
+Or let the operator assemble the `.dockerconfigjson` from individual fields in a Secret:
 
 ```yaml
 apiVersion: pullsecret.itdpk.de/v1
@@ -89,8 +94,13 @@ metadata:
   name: my-registry
 spec:
   credentials:
-    encryptedData: <base64-encoded-encrypted-credentials>
+    registryCredentials:
+      secretName: my-registry-credentials
+      namespace: default
 ```
+
+Then annotate a workload (`pullsecret.itdpk.de/cluster-pull-secrets: "my-registry"`), or
+enable the webhook (`--set webhook.enabled=true`) to inject `imagePullSecrets` automatically.
 
 ## Uninstalling the Chart
 
