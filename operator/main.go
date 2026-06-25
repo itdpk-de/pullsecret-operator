@@ -9,11 +9,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pascalku/pullsecret-operator/operator/annotations"
-	"github.com/pascalku/pullsecret-operator/operator/controllers"
-	"github.com/pascalku/pullsecret-operator/operator/registry"
-	podwebhook "github.com/pascalku/pullsecret-operator/operator/webhook"
-	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
+	"github.com/itdpk-de/pullsecret-operator/operator/annotations"
+	"github.com/itdpk-de/pullsecret-operator/operator/controllers"
+	"github.com/itdpk-de/pullsecret-operator/operator/registry"
+	podwebhook "github.com/itdpk-de/pullsecret-operator/operator/webhook"
+	v1 "github.com/itdpk-de/pullsecret-operator/pkg/apis/pullsecret.itdpk.de/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -53,7 +53,7 @@ func main() {
 
 	opts := manager.Options{
 		LeaderElection:          enableLeaderElection,
-		LeaderElectionID:        "kube-leader-pullsecret.pascal-kutscha.de",
+		LeaderElectionID:        "kube-leader-pullsecret.itdpk.de",
 		LeaderElectionNamespace: leaderElectionNamespace,
 		Metrics: metricsserver.Options{
 			BindAddress: metricsAddr,

@@ -31,7 +31,7 @@ The following table lists the configurable parameters of the chart and their def
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `replicaCount` | Number of replicas | `1` |
-| `image.repository` | Image repository | `ghcr.io/pascalku/pullsecret-operator` |
+| `image.repository` | Image repository | `ghcr.io/itdpk-de/pullsecret-operator` |
 | `image.pullPolicy` | Image pull policy | `IfNotPresent` |
 | `image.tag` | Image tag | `latest` |
 | `serviceAccount.create` | Create service account | `true` |
@@ -68,7 +68,7 @@ The following table lists the configurable parameters of the chart and their def
 After installing the chart, you can create a `ClusterPullSecret` resource:
 
 ```yaml
-apiVersion: pullsecret.pascal-kutscha.de/v1
+apiVersion: pullsecret.itdpk.de/v1
 kind: ClusterPullSecret
 metadata:
   name: my-registry
@@ -83,7 +83,7 @@ spec:
 Or use encrypted credentials:
 
 ```yaml
-apiVersion: pullsecret.pascal-kutscha.de/v1
+apiVersion: pullsecret.itdpk.de/v1
 kind: ClusterPullSecret
 metadata:
   name: my-registry
@@ -108,10 +108,10 @@ The CRD (`templates/crd.yaml`) is automatically generated from the Go API types 
 
 **Do not manually edit `templates/crd.yaml`**. Instead:
 
-1. Modify the API types in the main repository: `pkg/apis/pullsecret.pascal-kutscha.de/v1/clusterpullsecret_types.go`
+1. Modify the API types in the main repository: `pkg/apis/pullsecret.itdpk.de/v1/clusterpullsecret_types.go`
 2. Run `make manifests` from the repository root to regenerate the CRD
 3. The CRD will be automatically copied to the Helm chart templates directory
 
 ## Support
 
-For issues and questions, please visit the [GitHub repository](https://github.com/PascalKu/pullsecret-operator).
+For issues and questions, please visit the [GitHub repository](https://github.com/itdpk-de/pullsecret-operator).

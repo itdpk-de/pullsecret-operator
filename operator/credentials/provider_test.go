@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
+	v1 "github.com/itdpk-de/pullsecret-operator/pkg/apis/pullsecret.itdpk.de/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

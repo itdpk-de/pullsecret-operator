@@ -55,5 +55,5 @@ Examples of Deployments that use the annotation to automatically get pull secret
 ## Notes
 
 - The operator requires appropriate RBAC permissions to read Secrets (when using secretRef) and to create/update/delete Secrets in target namespaces
-- Secrets created by the operator have the annotation `pullsecret.pascal-kutscha.de/managed-by` to track ownership
+- Secrets created by the operator have the annotation `pullsecret.itdpk.de/managed-by` to track ownership
 - When using encrypted data, ensure you encrypt properly before base64 encoding

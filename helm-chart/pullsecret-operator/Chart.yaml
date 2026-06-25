@@ -10,7 +10,8 @@ keywords:
   - pull-secrets
   - docker-registry
 maintainers:
-  - name: PascalKu
-home: https://github.com/PascalKu/pullsecret-operator
+  - name: itdpk.de
+    url: https://itdpk.de
+home: https://github.com/itdpk-de/pullsecret-operator
 sources:
-  - https://github.com/PascalKu/pullsecret-operator
+  - https://github.com/itdpk-de/pullsecret-operator

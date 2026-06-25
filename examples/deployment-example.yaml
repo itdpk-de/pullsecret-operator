@@ -20,7 +20,7 @@ metadata:
   namespace: default
   annotations:
     # Reference one or more ClusterPullSecrets (comma-separated)
-    pullsecret.pascal-kutscha.de/cluster-pull-secrets: "my-registry"
+    pullsecret.itdpk.de/cluster-pull-secrets: "my-registry"
 spec:
   replicas: 2
   selector:
@@ -53,7 +53,7 @@ metadata:
   namespace: production
   annotations:
     # Multiple registries separated by comma
-    pullsecret.pascal-kutscha.de/cluster-pull-secrets: "ghcr-registry,dockerhub-registry,private-registry"
+    pullsecret.itdpk.de/cluster-pull-secrets: "ghcr-registry,dockerhub-registry,private-registry"
 spec:
   replicas: 3
   selector:
@@ -83,7 +83,7 @@ spec:
 
 When you create or update a Deployment with the annotation:
 
-1. The operator detects the `pullsecret.pascal-kutscha.de/cluster-pull-secrets` annotation
+1. The operator detects the `pullsecret.itdpk.de/cluster-pull-secrets` annotation
 2. For each referenced ClusterPullSecret, it creates a Secret in the Deployment's namespace
 3. The Secret is named `pullsecret-<clusterpullsecret-name>`
 4. The Secret is automatically updated when the ClusterPullSecret changes

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pascalku/pullsecret-operator/operator/annotations"
-	"github.com/pascalku/pullsecret-operator/operator/credentials"
-	"github.com/pascalku/pullsecret-operator/operator/registry"
-	v1 "github.com/pascalku/pullsecret-operator/pkg/apis/pullsecret.pascal-kutscha.de/v1"
+	"github.com/itdpk-de/pullsecret-operator/operator/annotations"
+	"github.com/itdpk-de/pullsecret-operator/operator/credentials"
+	"github.com/itdpk-de/pullsecret-operator/operator/registry"
+	v1 "github.com/itdpk-de/pullsecret-operator/pkg/apis/pullsecret.itdpk.de/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,7 +38,7 @@ type ClusterPullSecretReconciler struct {
 	RegistryCheckInterval time.Duration
 }
 
-const clusterFinalizer = "pullsecret.pascal-kutscha.de/finalizer"
+const clusterFinalizer = "pullsecret.itdpk.de/finalizer"
 
 // resyncInterval is how often credentials are re-validated even without a triggering
 // event, so the status and metrics reflect e.g. a deleted source secret promptly.

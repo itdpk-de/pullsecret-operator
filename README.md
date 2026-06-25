@@ -36,7 +36,7 @@ helm install pullsecret-operator ./helm-chart/pullsecret-operator \
 Using a secret reference:
 
 ```yaml
-apiVersion: pullsecret.pascal-kutscha.de/v1
+apiVersion: pullsecret.itdpk.de/v1
 kind: ClusterPullSecret
 metadata:
   name: my-registry
@@ -55,7 +55,7 @@ The operator reads the individual fields (`server`, `username`, `password`,
 automatically. No credential data is embedded in the ClusterPullSecret spec.
 
 ```yaml
-apiVersion: pullsecret.pascal-kutscha.de/v1
+apiVersion: pullsecret.itdpk.de/v1
 kind: ClusterPullSecret
 metadata:
   name: my-registry
@@ -86,7 +86,7 @@ Using inline `dockerConfigJson` (raw JSON **or** base64-encoded — both accepte
 > (treated identically, never decrypted). Use `dockerConfigJson`.
 
 ```yaml
-apiVersion: pullsecret.pascal-kutscha.de/v1
+apiVersion: pullsecret.itdpk.de/v1
 kind: ClusterPullSecret
 metadata:
   name: my-registry
@@ -114,7 +114,7 @@ kind: Deployment
 metadata:
   name: my-app
   annotations:
-    pullsecret.pascal-kutscha.de/cluster-pull-secrets: "my-registry,other-registry"
+    pullsecret.itdpk.de/cluster-pull-secrets: "my-registry,other-registry"
 spec:
   # ... workload spec
 ```
@@ -163,7 +163,7 @@ The operator image is automatically built and pushed to GitHub Container Registr
 ### Using the Image
 
 ```yaml
-image: ghcr.io/pascalku/pullsecret-operator:latest
+image: ghcr.io/itdpk-de/pullsecret-operator:latest
 ```
 
 ## Development
@@ -206,8 +206,8 @@ make manifests
 ```
 
 This command:
-1. Generates the CRD from the Go types in `pkg/apis/pullsecret.pascal-kutscha.de/v1/`
-2. Saves it to `pullsecret/templates/pullsecret.pascal-kutscha.de_clusterpullsecrets.yaml`
+1. Generates the CRD from the Go types in `pkg/apis/pullsecret.itdpk.de/v1/`
+2. Saves it to `pullsecret/templates/pullsecret.itdpk.de_clusterpullsecrets.yaml`
 3. Copies it to `helm-chart/pullsecret-operator/templates/crd.yaml` for Helm deployment
 
 **Important**: Always run `make manifests` after modifying the API types to ensure CRDs are up-to-date.
@@ -313,7 +313,7 @@ Configuration options can be set via Helm values:
 # values.yaml
 replicaCount: 1
 image:
-  repository: ghcr.io/pascalku/pullsecret-operator
+  repository: ghcr.io/itdpk-de/pullsecret-operator
   tag: latest
 resources:
   limits:

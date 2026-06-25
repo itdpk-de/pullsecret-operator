@@ -89,7 +89,7 @@ metadata:
     cert-manager.io/inject-ca-from: {{ $ns }}/{{ $certName }}
   {{- end }}
 webhooks:
-- name: pods.pullsecret.pascal-kutscha.de
+- name: pods.pullsecret.itdpk.de
   admissionReviewVersions: ["v1"]
   sideEffects: None
   failurePolicy: {{ .Values.webhook.failurePolicy }}
