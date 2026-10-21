@@ -346,7 +346,7 @@ The CI enforces a CRD/deepcopy drift check, so commit the regenerated files.
 
 ## License
 
-© itdpk.de. A license file will be added before public release.
+Licensed under the [MIT License](LICENSE). © 2026 ITDPK.
 
 ## Support
 
