@@ -160,10 +160,11 @@ The operator image is automatically built and pushed to GitHub Container Registr
 
 ### Available Tags
 
-- `latest` - Latest build from the main/master branch
-- `<branch-name>` - Builds from feature branches
-- `v<version>` - Tagged releases (e.g., `v1.0.0`)
-- `<branch>-<sha>` - Specific commit builds
+- `latest` - Latest build from the default branch (`main`)
+- `<branch-name>` - Builds from branches and pull requests
+- `<version>`, `<major>.<minor>`, `<major>` - Tagged releases. A `vX.Y.Z` git tag
+  produces image tags **without** the `v` prefix, e.g. tag `v0.1.0` → `0.1.0`, `0.1`, `0`
+- `<sha>` - Specific commit builds
 
 ### Using the Image
 
