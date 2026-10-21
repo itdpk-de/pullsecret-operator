@@ -52,6 +52,8 @@ nodeSelector: {}
 tolerations: []
 
 # Soft pod anti-affinity by default so replicas spread across nodes (relevant for HA).
+# NOTE: the label below is the chart's default name. If you set `nameOverride`, update
+# this matchLabels value to match the pods (values.yaml can't use templates).
 affinity:
   podAntiAffinity:
     preferredDuringSchedulingIgnoredDuringExecution:

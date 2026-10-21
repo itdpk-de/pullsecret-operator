@@ -3,7 +3,9 @@ name: pullsecret-operator
 description: A Helm chart for the PullSecret Operator that manages cluster-wide pull secrets
 type: application
 version: 0.1.0
-appVersion: "latest"
+# Pinned to a released version so installs are reproducible (image tag defaults to
+# this). Cut a matching `v0.1.0` git tag so CI publishes ghcr.io/.../pullsecret-operator:0.1.0.
+appVersion: "0.1.0"
 keywords:
   - operator
   - kubernetes

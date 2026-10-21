@@ -1,0 +1,39 @@
+{{ include "pullsecret-operator.fullname" . }} has been installed in namespace "{{ .Release.Namespace }}".
+
+1) Define your registry credentials once, cluster-wide:
+
+   apiVersion: pullsecret.itdpk.de/v1
+   kind: ClusterPullSecret
+   metadata:
+     name: my-registry
+   spec:
+     credentials:
+       secretRef:
+         namespace: default
+         name: my-docker-credentials
+         key: .dockerconfigjson
+
+2) Opt a workload in via annotation (comma-separate multiple ClusterPullSecrets):
+
+   metadata:
+     annotations:
+       pullsecret.itdpk.de/cluster-pull-secrets: "my-registry"
+
+   The operator creates a Secret named "pullsecret-<name>" in that workload's namespace.
+
+3) Check status:
+
+   kubectl get clusterpullsecrets
+
+{{ if .Values.webhook.enabled -}}
+Mutating webhook: ENABLED — imagePullSecrets are injected into matching Pods automatically.
+{{- else -}}
+Mutating webhook: disabled — reference the generated Secret via imagePullSecrets,
+or enable automatic injection with `--set webhook.enabled=true`.
+{{- end }}
+{{- if not .Values.installCRDs }}
+
+NOTE: installCRDs=false — make sure the ClusterPullSecret CRD is installed separately.
+{{- end }}
+
+Docs: https://github.com/itdpk-de/pullsecret-operator
